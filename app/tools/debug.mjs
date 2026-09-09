@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist'] });
+const p = await b.newPage({ viewport: { width: 900, height: 900 } });
+p.on('console', m => console.log('[console:' + m.type() + ']', m.text().slice(0, 400)));
+p.on('pageerror', e => console.log('[pageerror]', String(e).slice(0, 400)));
+p.on('requestfailed', r => console.log('[reqfail]', r.url(), r.failure()?.errorText));
+const resp = await p.goto('http://localhost:5188/viewer.html?' + (process.argv[2] ?? ''), { waitUntil: 'load' });
+console.log('status', resp.status());
+await p.waitForTimeout(parseInt(process.argv[3] ?? '15000'));
+console.log('ready', await p.evaluate(() => window.__ready), JSON.stringify(await p.evaluate(() => window.__info)));
+await b.close();

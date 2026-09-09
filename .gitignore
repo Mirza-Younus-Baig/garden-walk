@@ -1,0 +1,8 @@
+.env
+node_modules/
+app/node_modules/
+app/dist/
+raw/
+# Blender authoring scenes: large, and not part of the web build
+blender/
+.DS_Store

@@ -1,0 +1,8 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #c8d6c0; font-family: Georgia, "Times New Roman", serif; }
+canvas { display: block; touch-action: none; cursor: crosshair; }
+#loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: #dfe7d6; color: #3c4a33; transition: opacity 0.8s ease; z-index: 10; }
+#loading.hide { opacity: 0; pointer-events: none; }
+#loading .txt { font-size: 22px; letter-spacing: 0.04em; }
+#loading .track { width: 220px; height: 3px; background: #b9c7ae; border-radius: 2px; overflow: hidden; }
+#loading #bar { height: 100%; width: 0; background: #5f7f45; transition: width 0.2s; }

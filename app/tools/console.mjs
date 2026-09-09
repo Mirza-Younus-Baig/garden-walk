@@ -1,0 +1,12 @@
+import { chromium } from 'playwright'; import fs from 'fs';
+const out = process.argv[2];
+const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist'] });
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+const logs = [];
+p.on('console', m => logs.push(m.type() + ': ' + m.text()));
+p.on('pageerror', e => logs.push('PAGEERROR: ' + e));
+await p.goto('http://localhost:5188/', { waitUntil: 'load' });
+await p.waitForFunction(() => window.__ready, null, { timeout: 180000 });
+await p.waitForTimeout(3000);
+fs.writeFileSync(out, logs.join('\n\n'));
+await b.close();
