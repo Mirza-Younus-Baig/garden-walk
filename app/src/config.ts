@@ -6,7 +6,9 @@ export const CONFIG = {
   accel: 4.0,
   runAccel: 6.5,           // she gets up to a run faster than she eases into a walk
   decel: 6.0,
-  turnSpeed: 8.0,          // rad/s toward movement direction
+  turnSpeed: 8.0,          // 1/s: how quickly she closes on the movement direction
+  turnMax: 7.5,            // rad/s cap on that, so a reversal takes ~0.4 s instead of snapping
+  turnSlow: 0.75,          // fraction of her speed given up at a full reversal (a pivot, not an arc)
   arriveRadius: 0.3,
   clickRange: 46,          // furthest a click can send her, in metres
 
@@ -44,6 +46,11 @@ export const CONFIG = {
     tulip:     { cell: 0.470, k: 8,  maxTiles: 125, range: 24 },
     lily:      { cell: 0.450, k: 7,  maxTiles: 230, range: 26 },
     rose:      { cell: 0.950, k: 5,  maxTiles: 125, range: 26 },
+    // Ground cover. Grass clumps are cheap and dense: the floor under the flowers is
+    // grass, not texture, out to where the flower haze takes over. Scrub is sparse low
+    // foliage from the scans, so the cover is not all one thing.
+    grass:     { cell: 0.160, k: 8,  maxTiles: 200, range: 15 },
+    scrub:     { cell: 0.750, k: 4,  maxTiles: 64,  range: 10 },
   },
 
   /**
@@ -65,6 +72,9 @@ export const CONFIG = {
     lily:       [0.60, 0.95],   // knee to hip
     rose:       [0.55, 0.85],   // a whole bush: knee to hip
     roseSingle: [0.40, 0.56],   // one long stem, a smaller plant than the bush
+    grass:      [0.14, 0.30],   // a clump, to the ankle or a little over
+    scrub:      [0.14, 0.24],   // a tuft of strap leaves
+    scrubBush:  [0.18, 0.30],   // a low leafy mound
   } as Record<string, [number, number]>,
 
   /**
@@ -79,6 +89,8 @@ export const CONFIG = {
 
   // How much of each grid actually grows a plant (0..1), before noise clumping.
   daisyDensity: 0.9,
+  grassDensity: 0.96,
+  scrubDensity: 0.7,
   lilyDensity: 0.85,
   roseDensity: 0.8,
   tulipDensity: 0.85,
@@ -89,15 +101,23 @@ export const CONFIG = {
   // screen: roughly its height over the tangent of a low sun. Casters further back than
   // this are skipped in the shadow pass, which otherwise draws the whole disc around her.
   shadowBehind: {
-    daisy: 0.8, daisyFar: 0, lily: 2.0, tulip: 1.1, rose: 2.2,
-  } as Record<'daisy' | 'daisyFar' | 'lily' | 'tulip' | 'rose', number>,
+    daisy: 0.8, daisyFar: 0, lily: 2.0, tulip: 1.1, rose: 2.2, grass: 0, scrub: 0.7,
+  } as Record<'daisy' | 'daisyFar' | 'lily' | 'tulip' | 'rose' | 'grass' | 'scrub', number>,
 
+  /**
+   * Contact per type. `radius` is the reach of the largest contact shape in metres (the
+   * shapes themselves are in flowers/field.ts: feet for daisies, knees for tulips, hips
+   * for lilies and roses); `freq` and `damp` are the spring-back after she has passed,
+   * in rad/s and 1/s. A daisy whips back and settles fast; a rose cane barely moves.
+   */
   push: {
-    daisy: { radius: 0.55, strength: 1.0 },
-    daisyFar: { radius: 0, strength: 0 },      // always far away; never touched
-    lily: { radius: 0.6, strength: 0.9 },
-    tulip: { radius: 0.55, strength: 0.95 },
-    rose: { radius: 0.6, strength: 0.5 },      // woody: barely gives
+    daisy: { radius: 0.55, strength: 1.0, freq: 11.0, damp: 3.0 },
+    daisyFar: { radius: 0, strength: 0, freq: 11.0, damp: 3.0 },      // always far away; never touched
+    lily: { radius: 0.6, strength: 0.9, freq: 7.5, damp: 2.4 },
+    tulip: { radius: 0.55, strength: 0.95, freq: 9.0, damp: 2.6 },
+    rose: { radius: 0.6, strength: 0.5, freq: 6.0, damp: 3.6 },      // woody: barely gives
+    grass: { radius: 0.5, strength: 1.0, freq: 13.0, damp: 3.6 },    // soft: flattens under a foot and is up again at once
+    scrub: { radius: 0.55, strength: 0.7, freq: 9.0, damp: 3.2 },
   },
 
   /**
@@ -108,21 +128,32 @@ export const CONFIG = {
   pushSpeed: { radius: 0.5, strength: 0.9, lean: 0.55 },
 
   camera: {
-    back: 3.4, up: 1.9, lookUp: 1.05, minZoom: 0.55, maxZoom: 2.2, damp: 4.0,
+    back: 3.4, up: 1.9, lookUp: 1.05, minZoom: 0.55, maxZoom: 2.2,
     startZoom: 0.72,       // closer than the old default: less ground on screen to fill
-    yawRate: 2.6,          // rad/s the camera swings to get behind her
+    fov: 42, runFov: 4,    // degrees; the lens widens a touch at a run
+    // Every camera motion is a critically damped spring; these are its settling times in
+    // seconds (roughly how long a change takes to mostly arrive).
+    posSmooth: 0.28,
+    lookSmooth: 0.18,
+    yawSmooth: 0.55,       // how long the orbit takes to swing in behind her
+    zoomSmooth: 0.22,
+    lookAhead: 0.28,       // seconds of her velocity the frame leads by
     settle: 1.4,           // seconds it keeps swinging after she stops
   },
 
   // Distance (m) at which each type drops a level of detail; daisies fall to billboards
   // past the last entry, and billboards fade out into the fog.
+  // The middle level of each scan is still a full mesh (a lily is 1400 triangles at
+  // level 1 against 190 at level 2), so the second distance is where the budget goes.
   lod: {
-    daisy: [3.6, 8.5],
-    daisyFar: [8.5],
-    lily: [6, 14],
-    tulip: [4.5, 11],
-    rose: [7, 16],
-  } as Record<'daisy' | 'daisyFar' | 'lily' | 'tulip' | 'rose', number[]>,
+    daisy: [3.4, 8.0],
+    daisyFar: [8.0],
+    lily: [5.0, 10.0],
+    tulip: [4.0, 9.0],
+    rose: [6.0, 13.0],
+    grass: [3.2, 7.0],
+    scrub: [3.0, 7.0],
+  } as Record<'daisy' | 'daisyFar' | 'lily' | 'tulip' | 'rose' | 'grass' | 'scrub', number[]>,
 
   fog: { near: 20, far: 74 },
 };
