@@ -23,6 +23,8 @@ export const flowerUniforms = {
 export interface FlowerShaderOpts {
   height: number;       // model height (bend weight normalisation)
   stiffness: number;    // lower = bends more
+  /** spring-back after she brushes past: [angular frequency rad/s, damping 1/s] */
+  spring?: [number, number];
   /**
    * Recolour petals with the per-instance batch colour.
    *  'mask' - the map's alpha marks which pixels are petals (built by makePetalMask)
@@ -68,6 +70,7 @@ export function makeBatchData(maxInstances: number): BatchData {
 const vertexHead = /* glsl */`
   uniform float uTime; uniform vec2 uWindDir; uniform float uWindStrength; uniform vec3 uHover;
   uniform float uHeight; uniform float uStiffness; uniform float uHeadNod;
+  uniform float uSpringFreq; uniform float uSpringDamp;
   uniform highp sampler2D uRandTex; uniform highp sampler2D uDisturbTex;
   vec4 fetchData(sampler2D tex, int id){
     int size = textureSize(tex, 0).x;
@@ -92,9 +95,12 @@ const vertexHead = /* glsl */`
     float windAng = (gust * 0.10 + flutter) * uWindStrength / uStiffness;
     float hd = length(base.xz - uHover.xz);
     windAng += smoothstep(1.1, 0.0, hd) * sin(t * 9.0 + aRand.x * 9.0) * 0.06;
-    // ---- disturbance (girl walking through): damped spring after last contact
+    // ---- disturbance (girl walking through): damped spring after last contact. The
+    // envelope decays and the cosine carries the overshoot; each type has its own
+    // frequency and damping, so a daisy whips back and a rose cane barely stirs.
     float e = max(t - aDisturb.w, 0.0);
-    float amp = aDisturb.z * exp(-e * 2.6) * cos(e * 7.5);
+    float env = aDisturb.z * exp(-e * uSpringDamp);
+    float amp = env * cos(e * uSpringFreq);
     vec2 lean = uWindDir * windAng + aDisturb.xy * amp * (0.9 / uStiffness);
     float ang = length(lean);
     if (ang < 1e-5) return mat3(1.0);
@@ -103,6 +109,8 @@ const vertexHead = /* glsl */`
     vec3 axis = normalize(cross(vec3(0.0, 1.0, 0.0), dl));
     float a = ang * w;
     a += uHeadNod * smoothstep(0.75, 1.0, w) * sin(t * 1.3 + aRand.x * 3.0) * 0.08;
+    // a plant that has just been brushed shivers at the top while it settles
+    a += env * smoothstep(0.55, 1.0, w) * sin(t * 21.0 + aRand.x * 17.0 + p.y * 9.0) * 0.05;
     return rotAxis(axis, a);
   }
 `;
@@ -175,6 +183,11 @@ const fragHead = /* glsl */`
     float amount = uDetail * smoothstep(9.0, 1.5, length(vViewPosition));
     if (amount < 0.002) return;
     float f = mix(170.0, 420.0, flowerPetal);
+    // Gone before it can alias: once a fibre spans less than a few pixels the relief
+    // would turn into a moire hatch across the petal, so it fades with the UV footprint.
+    float cyclesPerPixel = f * length(fwidth(uv)) * 0.159;
+    amount *= smoothstep(0.35, 0.12, cyclesPerPixel);
+    if (amount < 0.002) return;
     float wob = sin(uv.y * 23.0) * 1.5;
     vec2 g = vec2(f, 23.0 * cos(uv.y * 23.0) * 1.5) * cos(uv.x * f + wob) * 0.5;
     vec2 d2 = vec2(f * 0.53, f * 0.31);  g += d2 * cos(dot(uv, d2)) * 0.3;
@@ -183,26 +196,26 @@ const fragHead = /* glsl */`
     n = normalize(flowerTangentFrame(-vViewPosition, n, uv) * mapN);
   }
 
-  float flowerBayer(vec2 p) {
-    ivec2 i = ivec2(mod(p, 4.0));
-    int idx = i.x + i.y * 4;
-    const float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-    return (m[idx] + 0.5) / 16.0;
+  /** interleaved gradient noise: a fine grain with no visible repeat, stable per pixel */
+  float flowerGrain(vec2 p) {
+    return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y));
   }
 
   /**
-   * The camera must never lose her behind a sunflower: anything tall on the line from the
-   * camera to her chest, and well short of her, dithers away. Plants at her own depth and
-   * anything below waist height are left alone, so lilies still cross in front of her legs
-   * and a sunflower at her shoulder stays whole.
+   * The camera must never lose her behind a plant: anything tall on the line from the
+   * camera to her chest, and well short of her, is dithered away. Plants at her own depth
+   * and anything below waist height are left alone, so lilies still cross in front of her
+   * legs and a tall stem at her shoulder stays whole. The dither is a grain rather than a
+   * Bayer grid, so a half-faded plant reads as translucent instead of as a screen door,
+   * and the band is narrow: only what actually covers her is touched.
    */
   void flowerOcclusion() {
     if (vFlowerWorld.y < uGirlPos.y - 0.35) return;
     vec3 ab = uGirlPos - cameraPosition;
     float t = clamp(dot(vFlowerWorld - cameraPosition, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
     float dline = length(vFlowerWorld - (cameraPosition + ab * t));
-    float fade = smoothstep(0.5, 0.15, dline) * smoothstep(0.72, 0.5, t);
-    if (fade > flowerBayer(gl_FragCoord.xy)) discard;
+    float fade = smoothstep(0.42, 0.14, dline) * smoothstep(0.7, 0.45, t);
+    if (fade > flowerGrain(gl_FragCoord.xy)) discard;
   }
 
   /**
@@ -284,8 +297,7 @@ function mapBody(tint: 'mask' | 'all' | undefined) {
     albedo *= 0.90 + 0.20 * vFlowerRand.z;
     // the soil line sits under every neighbour's leaves and sees little sky
     albedo *= mix(uBaseAO, 1.0, smoothstep(0.0, 0.55, vPlantY));
-    diffuseColor.rgb *= albedo;
-    flowerOcclusion();`;
+    diffuseColor.rgb *= albedo;`;
 }
 
 const finishBody = /* glsl */`
@@ -309,13 +321,18 @@ function finishUniforms(opts: FlowerShaderOpts) {
   };
 }
 
+function bendUniforms(opts: FlowerShaderOpts, data: BatchData) {
+  const [freq, damp] = opts.spring ?? [7.5, 2.6];
+  return {
+    uHeight: { value: opts.height }, uStiffness: { value: opts.stiffness }, uHeadNod: { value: opts.headNod ?? 0 },
+    uSpringFreq: { value: freq }, uSpringDamp: { value: damp },
+    uRandTex: { value: data.rand }, uDisturbTex: { value: data.disturb },
+  };
+}
+
 export function applyFlowerShader(mat: THREE.Material, opts: FlowerShaderOpts, data: BatchData) {
   const m = mat as THREE.MeshPhysicalMaterial;
-  const uniforms = {
-    uHeight: { value: opts.height }, uStiffness: { value: opts.stiffness }, uHeadNod: { value: opts.headNod ?? 0 },
-    uRandTex: { value: data.rand }, uDisturbTex: { value: data.disturb },
-    ...finishUniforms(opts),
-  };
+  const uniforms = { ...bendUniforms(opts, data), ...finishUniforms(opts) };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, flowerUniforms, uniforms);
     sh.vertexShader = patchVertex(sh.vertexShader, true);
@@ -323,6 +340,7 @@ export function applyFlowerShader(mat: THREE.Material, opts: FlowerShaderOpts, d
       .replace('#include <color_fragment>', '')   // the batch colour is mixed in by hand
       .replace('#include <common>', '#include <common>\n' + fragHead)
       .replace('#include <map_fragment>', mapBody(opts.tint))
+      .replace('#include <alphatest_fragment>', '#include <alphatest_fragment>\n flowerOcclusion();')
       .replace('#include <lights_physical_fragment>', finishBody)
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n flowerDetail(normal, vMapUv);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += flowerHalo(diffuseColor.rgb);')
@@ -336,10 +354,7 @@ export function applyFlowerShader(mat: THREE.Material, opts: FlowerShaderOpts, d
 export function makeFlowerDepthMaterial(opts: FlowerShaderOpts, data: BatchData, alphaMap?: THREE.Texture | null, alphaTest = 0) {
   const d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   if (alphaMap && alphaTest > 0) { d.map = alphaMap; d.alphaTest = alphaTest; }
-  const uniforms = {
-    uHeight: { value: opts.height }, uStiffness: { value: opts.stiffness }, uHeadNod: { value: opts.headNod ?? 0 },
-    uRandTex: { value: data.rand }, uDisturbTex: { value: data.disturb },
-  };
+  const uniforms = bendUniforms(opts, data);
   d.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, flowerUniforms, uniforms);
     sh.vertexShader = patchVertex(sh.vertexShader, false);

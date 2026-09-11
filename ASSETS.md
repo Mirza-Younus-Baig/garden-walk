@@ -90,3 +90,8 @@ Install Blender 4.x (`brew install --cask blender`). For each scan:
 4. Origin at the base of the stem, +Y up, facing +Z. Apply all transforms.
 5. Export GLB with "Apply Modifiers", vertex colours on, no animation, Draco off (Draco breaks per-vertex attribute reuse; use gltfpack/meshopt instead).
 6. Run `gltfpack -i in.glb -o out.glb -tc -cc` (meshopt + KTX2 basis textures).
+
+## Birds — built in Blender, no download
+
+- `tools/build_bird.py` models a crow from profiles (body lathe, fingered wings, wedge tail; ~360 triangles, 1 m wingspan) and exports `app/public/models/bird.glb`. Rerun with `blender -b --python tools/build_bird.py -- app/public/models/bird.glb [preview.png]`.
+- The mesh is static; the flap is a vertex-shader rotation driven by a UV map (U = span weight, V = side). Vertex colour is the plumage. Flocks live in `app/src/world/birds.ts`.

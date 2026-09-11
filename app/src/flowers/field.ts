@@ -4,6 +4,7 @@ import { CONFIG, type LayerName } from '../config';
 import { heightAt } from '../world/terrain';
 import { ViewGrid, cellHash, clumpNoise, type ViewParams } from './grid';
 import { applyFlowerShader, makeFlowerDepthMaterial, makeBatchData, flowerUniforms, type BatchData, type FlowerShaderOpts } from './shader';
+import { buildGrassClump, makeBladeTexture } from './grass';
 
 /** One BatchedMesh (one material) holding several geometries: variants x detail levels. */
 class Batch {
@@ -38,14 +39,35 @@ class Batch {
 
   setRand(slot: number, a: number, b: number, c: number) {
     (this.data.rand.image.data as Float32Array).set([a, b, c, 0], slot * 4);
+    this.data.rand.addUpdateRange(slot * 4, 4);
     this.data.rand.needsUpdate = true;
   }
   setDisturb(slot: number, dx: number, dz: number, amp: number, t: number) {
     (this.data.disturb.image.data as Float32Array).set([dx, dz, amp, t], slot * 4);
+    this.data.disturb.addUpdateRange(slot * 4, 4);
     this.dirty = true;
   }
   disturb() { return this.data.disturb.image.data as Float32Array; }
   flush() { if (this.dirty) { this.data.disturb.needsUpdate = true; this.dirty = false; } }
+
+  /**
+   * Only the rows a slot occupies go to the GPU. BatchedMesh flags its whole matrix and
+   * colour textures whenever one instance changes, and with seventy thousand slots across
+   * the batches that is several megabytes a frame while the meadow streams; a tile is a
+   * run of consecutive slots, so its cells merge into a handful of row uploads. The
+   * textures are private to three, but the update-range API on them is public.
+   */
+  touched(slot: number) {
+    const m = this.mesh as any;
+    m._matricesTexture.addUpdateRange(slot * 16, 16);
+    if (m._colorsTexture) m._colorsTexture.addUpdateRange(slot * 4, 4);
+  }
+}
+
+/** what the field needs to know about her each frame */
+export interface GirlState {
+  pos: THREE.Vector3; vel: THREE.Vector3; moveFactor: number;
+  contacts: { ankleL: THREE.Vector3; ankleR: THREE.Vector3; kneeL: THREE.Vector3; kneeR: THREE.Vector3; hips: THREE.Vector3 };
 }
 
 interface Plant {
@@ -110,6 +132,7 @@ class Layer {
       // Only tinted batches may carry an instance colour: on an untinted material three.js
       // would multiply it into the albedo and turn stems and leaves pink.
       if (p.color && b.tint) b.mesh.setColorAt(slot, p.color);
+      b.touched(slot);
       b.setRand(slot, h[0] * 10, h[1], h[2]);
       b.setDisturb(slot, 0, 0, 0, -10);
     }
@@ -148,21 +171,42 @@ class Layer {
   /** slot holding a given world cell, or -1 if that cell is not currently populated */
   slotOf(wx: number, wz: number) { return this.grid.slotOf(wx, wz); }
 
-  // ---- shadow-pass culling: plants well behind the camera cannot shadow anything on screen
+  // ---- shadow pass: cull what cannot reach the screen, and cast from a coarser mesh
   private culled: Int32Array[] = [];
   private nCulled: number[] = [];
+  private swapped: Int32Array[] = [];
+  private nSwapped: number[] = [];
+  /** per batch: geometry id to cast from, indexed [variant * 3 + level]; -1 keeps the lit one */
+  private shadowGeo: Int16Array[] = [];
   private static fwd = new THREE.Vector3();
 
   /**
-   * Hide, for the shadow pass only, every plant more than `margin` metres outside the
-   * camera's view wedge. A shadow can only land on screen if its caster stands within a
+   * Prepare the shadow pass. Every plant more than `margin` metres outside the camera's
+   * view wedge is hidden: a shadow can only land on screen if its caster stands within a
    * shadow's length of something that is on screen, so the margin is the longest shadow
    * that type can throw. The light's own box is a 22 m strip across the field, and without
    * this the shadow pass drew half again as much geometry as the view itself.
+   *
+   * What remains casts from the next detail level down. A shadow is a soft silhouette
+   * and the coarse mesh throws the same one, for a quarter of the triangles; every level
+   * is already in the batch, so this is a change of index and costs no memory.
    */
   shadowCull(camera: THREE.Camera, margin: number, focusX: number, focusZ: number, reach: number) {
     if (this.culled.length === 0) {
-      for (let i = 0; i < this.batches.length; i++) { this.culled.push(new Int32Array(this.px.length)); this.nCulled.push(0); }
+      for (const b of this.batches) {
+        this.culled.push(new Int32Array(this.px.length)); this.nCulled.push(0);
+        this.swapped.push(new Int32Array(this.px.length)); this.nSwapped.push(0);
+        const table = new Int16Array(256 * 3).fill(-1);
+        const levels = CONFIG.lod[this.type].length + 1;
+        for (let v = 0; v < 256; v++) for (let l = 0; l < levels; l++) {
+          const lit = this.geoName(v, l);
+          if (lit === null) continue;
+          const coarse = this.geoName(v, l + 1);
+          const id = coarse === null ? undefined : b.geo.get(coarse);
+          if (id !== undefined && id !== b.geo.get(lit)) table[v * 3 + l] = id;
+        }
+        this.shadowGeo.push(table);
+      }
     }
     const f = camera.getWorldDirection(Layer.fwd);
     const len = Math.hypot(f.x, f.z) || 1;
@@ -173,29 +217,41 @@ class Layer {
       ? Math.tan(pc.fov * 0.5 * THREE.MathUtils.DEG2RAD) * pc.aspect + 0.15
       : 1e6;
     for (let b = 0; b < this.batches.length; b++) {
-      const mesh = this.batches[b].mesh, list = this.culled[b];
-      let n = 0;
+      const mesh = this.batches[b].mesh, list = this.culled[b], swaps = this.swapped[b], table = this.shadowGeo[b];
+      let n = 0, m = 0;
       for (let slot = 0; slot < this.px.length; slot++) {
         if (!this.vis[slot]) continue;
+        // only slots this batch is actually showing: a hidden part must stay hidden
+        if (!mesh.getVisibleAt(slot)) continue;
         const rx = this.px[slot] - cx, rz = this.pz[slot] - cz;
         const ahead = rx * dx + rz * dz;
         const side = Math.abs(rx * dz - rz * dx);
         const gx = this.px[slot] - focusX, gz = this.pz[slot] - focusZ;
-        if (ahead > -margin && side <= ahead * tanHalf + margin && gx * gx + gz * gz < reach * reach) continue;
-        // only slots this batch is actually showing: a hidden part must stay hidden
-        if (!mesh.getVisibleAt(slot)) continue;
+        if (ahead > -margin && side <= ahead * tanHalf + margin && gx * gx + gz * gz < reach * reach) {
+          const level = this.level[slot];
+          const id = level < 3 ? table[this.variant[slot] * 3 + level] : -1;
+          if (id >= 0) { mesh.setGeometryIdAt(slot, id); swaps[m++] = slot; }
+          continue;
+        }
         mesh.setVisibleAt(slot, false); list[n++] = slot;
       }
-      this.nCulled[b] = n;
+      this.nCulled[b] = n; this.nSwapped[b] = m;
     }
   }
 
   shadowRestore() {
     for (let b = 0; b < this.batches.length; b++) {
-      const mesh = this.batches[b].mesh, list = this.culled[b];
+      const mesh = this.batches[b].mesh, list = this.culled[b], swaps = this.swapped[b];
       for (let i = 0; i < this.nCulled[b]; i++) mesh.setVisibleAt(list[i], true);
-      this.nCulled[b] = 0;
+      for (let i = 0; i < this.nSwapped[b]; i++) mesh.setGeometryIdAt(swaps[i], this.litGeo(b, swaps[i]));
+      this.nCulled[b] = 0; this.nSwapped[b] = 0;
     }
+  }
+
+  /** the geometry id a slot shows in the lit pass */
+  private litGeo(b: number, slot: number) {
+    const name = this.geoName(this.variant[slot], this.level[slot]);
+    return name === null ? 0 : (this.batches[b].geo.get(name) ?? 0);
   }
 
   stream(p: ViewParams) {
@@ -256,6 +312,7 @@ export class FlowerField {
     };
 
     const topY = (geo: THREE.BufferGeometry) => { geo.computeBoundingBox(); return geo.boundingBox!.max.y; };
+    const springOf = (t: LayerName): [number, number] => [CONFIG.push[t].freq, CONFIG.push[t].damp];
 
     /**
      * Divisor per variant that turns a requested world height into an instance scale.
@@ -310,7 +367,8 @@ export class FlowerField {
 
     // `?plain` switches the finish off (no sheen, translucency or relief) to measure its cost
     const plain = (o: FlowerShaderOpts): FlowerShaderOpts => q.includes('plain')
-      ? { ...o, petalTrans: 0, leafTrans: 0, sheenPetal: 0, sheenLeaf: 0, detail: 0 } : o;
+      ? { ...o, petalTrans: 0, leafTrans: 0, sheenPetal: 0, sheenLeaf: 0, detail: 0 }
+      : q.includes('nodetail') ? { ...o, detail: 0 } : o;
     const mkBatch = (name: string, mat: THREE.Material, slots: number,
                      geos: { name: string; geo: THREE.BufferGeometry }[],
                      o?: { shadow?: boolean; cull?: boolean; tint?: boolean }) => {
@@ -352,7 +410,7 @@ export class FlowerField {
 
     // ---------------- lilies (7 stem variants, blue and red beds) ----------------
     const lilyMeshes = meshesOf(lily.scene);
-    const lilyOpts: FlowerShaderOpts = { height: 0.9, stiffness: 0.9, tintGain: 1, petalTrans: 0.9, leafTrans: 0.5, sheenPetal: 1.0, petalRough: 0.7 };
+    const lilyOpts: FlowerShaderOpts = { height: 0.9, stiffness: 0.9, spring: springOf('lily'), tintGain: 1, petalTrans: 0.9, leafTrans: 0.5, sheenPetal: 1.0, petalRough: 0.7 };
     const lilyG = CONFIG.layers.lily;
     const lilySlots = lilyG.maxTiles * lilyG.k * lilyG.k;
     const lilyGeos = lilyMeshes.map((m) => {
@@ -410,7 +468,7 @@ export class FlowerField {
     }
     // woody: barely bends. Rose petals are velvet, many layers deep, so less light comes
     // through than a tulip; the leaves are glossy.
-    const bushOpts: FlowerShaderOpts = { height: 0.72, stiffness: 2.1, petalTrans: 0.65, leafTrans: 0.4, sheenPetal: 1.3, sheenLeaf: 0.3, petalRough: 0.7, baseAO: 0.5 };
+    const bushOpts: FlowerShaderOpts = { height: 0.72, stiffness: 2.1, spring: springOf('rose'), petalTrans: 0.65, leafTrans: 0.4, sheenPetal: 1.3, sheenLeaf: 0.3, petalRough: 0.7, baseAO: 0.5 };
     const heroOpts: FlowerShaderOpts = { ...bushOpts, height: 0.78, stiffness: 1.3 };
     const roseG = CONFIG.layers.rose;
     this.layers.push(new Layer('rose', buildParts('rose', roseMeshes, [
@@ -448,7 +506,7 @@ export class FlowerField {
       m.geo.computeBoundingBox();
     }
     // a tulip is a lantern: sun through its petals is most of what you see of it
-    const tulipOpts: FlowerShaderOpts = { height: 0.43, stiffness: 1.15, petalTrans: 1.0, leafTrans: 0.45, sheenPetal: 0.6, petalRough: 0.85, baseAO: 0.55 };
+    const tulipOpts: FlowerShaderOpts = { height: 0.43, stiffness: 1.15, spring: springOf('tulip'), petalTrans: 1.0, leafTrans: 0.45, sheenPetal: 0.6, petalRough: 0.85, baseAO: 0.55 };
     const tulipG = CONFIG.layers.tulip;
     this.layers.push(new Layer('tulip', buildParts('tulip', tulipMeshes, [
       { prefix: 'tulipa', variant: 0, opts: tulipOpts, tint: 'mask' },
@@ -471,7 +529,7 @@ export class FlowerField {
       ], CONFIG.sizeBlend.tulip)));
 
     // ---------------- daisies (mesh close up, billboards beyond) ----------------
-    const daisyOpts: FlowerShaderOpts = { height: 0.65, stiffness: 0.65, petalTrans: 0.8, leafTrans: 0.5, sheenPetal: 0.7, baseAO: 0.5 };
+    const daisyOpts: FlowerShaderOpts = { height: 0.65, stiffness: 0.65, spring: springOf('daisy'), petalTrans: 0.8, leafTrans: 0.5, sheenPetal: 0.7, baseAO: 0.5 };
     const dMeshes = meshesOf(daisy.scene);
     const variants = ['daisy_1', 'daisy_2', 'daisy_3', 'daisy_patch_big_1', 'daisy_patch_big_2', 'daisy_patch_big_3',
                       'daisy_patch_small_1', 'daisy_patch_small_2', 'daisy_patch_small_3'];
@@ -521,7 +579,59 @@ export class FlowerField {
       (_v, l) => (l === 0 ? null : 'bill'), daisyGrow(CONFIG.layers.daisyFar.cell, 'daisyFar'),
       divisors(new Array(variants.length).fill(topY(billSrc.geo)), 0)));
 
-    for (const name of ['daisy', 'lily', 'rose', 'tulip']) {
+    // ---------------- ground cover: grass clumps and low scrub ----------------
+    // Grass is a fan of blades built in code; it bends easily, flattens underfoot and is
+    // back up at once. No shadows: a few thousand clumps of shadow would cost more than
+    // they would show under the flowers' own.
+    const grassOpts: FlowerShaderOpts = { height: 0.25, stiffness: 0.42, spring: springOf('grass'), petalTrans: 0, leafTrans: 0.6,
+                                          sheenPetal: 0, sheenLeaf: 0.35, baseAO: 0.6, detail: 0 };
+    const grassSrc = new THREE.MeshStandardMaterial({ name: 'grass', map: makeBladeTexture() });
+    const grassMat = pbr(grassSrc, null);
+    grassMat.mat.roughness = 0.82;
+    const grassGeos = [];
+    for (let v = 0; v < 3; v++) for (let l = 0; l < 3; l++) grassGeos.push({ name: `v${v}_lod${l}`, geo: buildGrassClump(v, l) });
+    const grassBatch = mkBatch('grass', grassMat.mat, slotsOf('grass'), grassGeos, { shadow: false });
+    applyFlowerShader(grassMat.mat, plain(grassOpts), grassBatch.data);
+    const grassG = CONFIG.layers.grass;
+    this.layers.push(new Layer('grass', [grassBatch], lodName,
+      (wx, wz, h) => {
+        const x = (wx + 0.5 + (h[0] - 0.5) * 0.9) * grassG.cell, z = (wz + 0.5 + (h[1] - 0.5) * 0.9) * grassG.cell;
+        // thick nearly everywhere, thinning in patches so the ground shows through here and there
+        const drift = clumpNoise(x * 0.21 + 31, z * 0.21 - 7);
+        if (h[2] > CONFIG.grassDensity * (0.55 + drift * 0.6)) return null;
+        return { x, z, yaw: h[3] * Math.PI * 2, height: pickHeight('grass', h[0]), variant: Math.floor(h[1] * 3) % 3 };
+      },
+      divisors([1, 1, 1], 0)));
+
+    // Scrub: a tuft of strap leaves (the closed tulip's, without its bloom) and a low
+    // leafy mound (the rose bush's foliage, without its canes and blooms), scaled down to
+    // ankle height and scattered thinly between the flowers.
+    const scrubOpts: FlowerShaderOpts = { height: 0.22, stiffness: 1.0, spring: springOf('scrub'), petalTrans: 0, leafTrans: 0.5,
+                                          sheenPetal: 0, sheenLeaf: 0.3, baseAO: 0.5 };
+    const scrubG = CONFIG.layers.scrub;
+    const scrubSlots = slotsOf('scrub');
+    const tuftSrc = tulipMeshes.find((m) => m.name === 'tulipb_leaf_lod0')!;
+    const moundSrc = roseMeshes.find((m) => m.name === 'rosebush_leaf_lod0')!;
+    const tuftMat = pbr(tuftSrc.mat, null), moundMat = pbr(moundSrc.mat, null);
+    const tuftBatch = mkBatch('scrub_tuft', tuftMat.mat, scrubSlots,
+      [0, 1, 2].map((l) => ({ name: `v0_lod${l}`, geo: tulipMeshes.find((m) => m.name === `tulipb_leaf_lod${l}`)!.geo })), { shadow: true });
+    applyFlowerShader(tuftMat.mat, plain(scrubOpts), tuftBatch.data);
+    tuftBatch.mesh.customDepthMaterial = makeFlowerDepthMaterial(scrubOpts, tuftBatch.data, tuftMat.mat.map, tuftMat.mat.alphaTest);
+    const moundBatch = mkBatch('scrub_mound', moundMat.mat, scrubSlots,
+      [0, 1, 2].map((l) => ({ name: `v1_lod${l}`, geo: roseMeshes.find((m) => m.name === `rosebush_leaf_lod${l}`)!.geo })), { shadow: true });
+    applyFlowerShader(moundMat.mat, plain(scrubOpts), moundBatch.data);
+    moundBatch.mesh.customDepthMaterial = makeFlowerDepthMaterial(scrubOpts, moundBatch.data, moundMat.mat.map, moundMat.mat.alphaTest);
+    this.layers.push(new Layer('scrub', [tuftBatch, moundBatch], lodName,
+      (wx, wz, h) => {
+        const x = (wx + 0.15 + h[0] * 0.7) * scrubG.cell, z = (wz + 0.15 + h[1] * 0.7) * scrubG.cell;
+        const drift = clumpNoise(x * 0.17 - 53, z * 0.17 + 23);
+        if (h[2] > CONFIG.scrubDensity * (0.35 + drift * 0.8)) return null;
+        const variant = h[3] < 0.6 ? 0 : 1;
+        return { x, z, yaw: h[3] * Math.PI * 2, variant, height: pickHeight(variant ? 'scrubBush' : 'scrub', h[0]) };
+      },
+      divisors([topY(tuftSrc.geo), topY(moundSrc.geo)], 0)));
+
+    for (const name of ['daisy', 'lily', 'rose', 'tulip', 'grass', 'scrub']) {
       if (q.includes(`no${name}`)) this.layers = this.layers.filter((l) => !l.type.startsWith(name));
     }
     // The shadow pass sees the whole disc around her, including everything behind the
@@ -583,8 +693,8 @@ export class FlowerField {
   /** per-phase timings, filled only when ?prof is on */
   prof = { stream: 0, lod: 0, contact: 0 };
 
-  update(_dt: number, time: number, girlPos: THREE.Vector3, girlVel: THREE.Vector3, moveFactor: number,
-         camera: THREE.PerspectiveCamera, prof = false) {
+  update(_dt: number, time: number, girl: GirlState, camera: THREE.PerspectiveCamera, prof = false) {
+    const girlPos = girl.pos, girlVel = girl.vel;
     flowerUniforms.uTime.value = time;
     flowerUniforms.uGirlPos.value.set(girlPos.x, girlPos.y + 1.0, girlPos.z);
     const now = prof ? () => performance.now() : () => 0;
@@ -618,29 +728,48 @@ export class FlowerField {
     const strengthGain = 1 + sp.strength * speedN;
     const lean = 0.35 + sp.lean * speedN;
     const gx = girlPos.x, gz = girlPos.z;
+    const c = girl.contacts;
     for (const l of this.layers) {
       const cfg = CONFIG.push[l.type];
       if (cfg.radius <= 0) continue;
+      // What she touches a plant of this height with. Daisies are parted by her feet,
+      // so they open ahead of each step and close behind it; tulips by her shins and
+      // knees; lilies by her hips with the knees sweeping through below; a rose bush
+      // only by her body. Each shape is [centre, radius, strength].
+      const shapes: [THREE.Vector3, number, number][] =
+        l.type === 'daisy' ? [[c.ankleL, 0.62, 1], [c.ankleR, 0.62, 1], [girlPos, 0.75, 0.45]]
+        : l.type === 'tulip' ? [[c.kneeL, 0.68, 1], [c.kneeR, 0.68, 1], [girlPos, 0.9, 0.5]]
+        : l.type === 'lily' ? [[c.hips, 1.0, 1], [c.kneeL, 0.7, 0.8], [c.kneeR, 0.7, 0.8]]
+        : l.type === 'grass' || l.type === 'scrub' ? [[c.ankleL, 0.6, 1], [c.ankleR, 0.6, 1], [girlPos, 0.7, 0.4]]
+        : [[c.hips, 1.0, 1]];
       const radius = cfg.radius * radiusGain;
-      const reach = radius * 1.25;
+      const reach = radius * 1.35;
       const c0x = Math.floor((gx - reach) / l.cell), c1x = Math.floor((gx + reach) / l.cell);
       const c0z = Math.floor((gz - reach) / l.cell), c1z = Math.floor((gz + reach) / l.cell);
       for (let cz = c0z; cz <= c1z; cz++) for (let cx = c0x; cx <= c1x; cx++) {
         const slot = l.slotOf(cx, cz);
         if (slot < 0 || !l.vis[slot]) continue;
-        const dx = l.px[slot] - gx, dz = l.pz[slot] - gz;
-        const d = Math.hypot(dx, dz);
-        if (d > radius) continue;
-        let s = 1 - d / radius; s = s * s * (3 - 2 * s);
-        s *= cfg.strength * (idle + (1 - idle) * moveFactor) * strengthGain;
-        let nx: number, nz: number;
-        if (d > 0.08) { nx = dx / d; nz = dz / d; }
-        else if (speedDir) { nx = speedDir.x; nz = speedDir.z; }
-        else { nx = 1; nz = 0; }
+        const px = l.px[slot], pz = l.pz[slot];
+        // the strongest contact wins, and it is the one the plant is pushed away from
+        let s = 0, nx = 0, nz = 0;
+        for (const [sc, sr, ss] of shapes) {
+          const r = radius * sr;
+          const dx = px - sc.x, dz = pz - sc.z;
+          const d = Math.hypot(dx, dz);
+          if (d > r) continue;
+          let f = 1 - d / r; f = f * f * (3 - 2 * f); f *= ss;
+          if (f <= s) continue;
+          s = f;
+          if (d > 0.06) { nx = dx / d; nz = dz / d; }
+          else if (speedDir) { nx = speedDir.x; nz = speedDir.z; }
+          else { nx = 1; nz = 0; }
+        }
+        if (s <= 0) continue;
+        s *= cfg.strength * (idle + (1 - idle) * girl.moveFactor) * strengthGain;
         if (speedDir) { nx += speedDir.x * lean; nz += speedDir.z * lean; const m = Math.hypot(nx, nz); nx /= m; nz /= m; }
         for (const b of l.batches) {
           const arr = b.disturb();
-          const prev = arr[slot * 4 + 2] * Math.exp(-(time - arr[slot * 4 + 3]) * 2.6) * 0.9;
+          const prev = arr[slot * 4 + 2] * Math.exp(-(time - arr[slot * 4 + 3]) * cfg.damp) * 0.9;
           b.setDisturb(slot, nx, nz, Math.max(s, prev), time);
         }
       }

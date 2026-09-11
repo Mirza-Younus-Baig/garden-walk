@@ -5,6 +5,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { Ground } from './world/ground';
 import { makeSky, type Sky } from './world/sky';
+import { Birds } from './world/birds';
 import { createTimeUI } from './ui/timeui';
 import { createCompass } from './ui/compass';
 import { FlowerField } from './flowers/field';
@@ -12,9 +13,17 @@ import { flowerUniforms } from './flowers/shader';
 import { Girl } from './girl/girl';
 import { FollowCamera } from './camera/follow';
 import { bindInput, groundPoint } from './input';
+import { CONFIG } from './config';
 
 const overlay = document.getElementById('loading')!;
 const bar = document.getElementById('bar')!;
+// The key hint sits at the bottom until she first walks, then leaves for good.
+const hint = document.getElementById('hint');
+addEventListener('keydown', function dismiss(e) {
+  if (!hint || !/^(Key[WASD]|Arrow)/.test(e.code)) return;
+  hint.classList.add('fade'); setTimeout(() => hint.remove(), 1000);
+  removeEventListener('keydown', dismiss);
+});
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 /**
@@ -25,6 +34,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
  */
 const basePixelRatio = Math.min(devicePixelRatio, 1.75);
 const PR_STEPS = [0.60, 0.72, 0.85, 1.0].map((f) => basePixelRatio * f);
+// `?pr=0.72` pins the ratio, so two measurements can be compared at the same resolution
+const lockPr = parseFloat(new URLSearchParams(location.search).get('pr') ?? '');
+if (!isNaN(lockPr)) PR_STEPS.length = 0, PR_STEPS.push(lockPr * basePixelRatio);
 let prIdx = PR_STEPS.length - 1;
 const applySize = () => {
   renderer.setPixelRatio(PR_STEPS[prIdx]);
@@ -51,6 +63,7 @@ const texLoader = new THREE.TextureLoader(manager);
 const ground = new Ground();
 const field = new FlowerField(gltfLoader);
 const girl = new Girl(gltfLoader);
+const birds = new Birds(gltfLoader);
 const input = bindInput(renderer.domElement, (dy) => follow.onWheel(dy));
 
 let sky: Sky | null = null;
@@ -59,16 +72,18 @@ let updateCompass: ((camera: THREE.Camera) => void) | null = null;
 
 (async () => {
   const [groundMesh, builtSky] = await Promise.all([
-    ground.build(texLoader), makeSky(scene, renderer, manager), field.load(), girl.load(),
+    ground.build(texLoader), makeSky(scene, renderer, manager), field.load(), girl.load(), birds.load(),
   ]);
   sky = builtSky;
   updateClockUI = createTimeUI(sky.dayNight, location.search.includes('dev'), !location.search.includes('noclock'));
   if (!location.search.includes('nocompass')) updateCompass = createCompass(sky.dayNight);
   (window as any).__sky = sky;
-  scene.add(groundMesh); scene.add(field.group); scene.add(girl.root);
-  (window as any).__follow = follow; (window as any).__renderer = renderer; (window as any).__scene = scene; (window as any).__girl = girl; (window as any).__field = field; (window as any).__camera = camera;
+  scene.add(groundMesh); scene.add(field.group); scene.add(girl.root); scene.add(birds.group);
+  (window as any).__cfg = CONFIG;
+  (window as any).__follow = follow; (window as any).__renderer = renderer; (window as any).__scene = scene; (window as any).__girl = girl; (window as any).__field = field; (window as any).__camera = camera; (window as any).__birds = birds;
   overlay.classList.add('hide');
   setTimeout(() => overlay.remove(), 900);
+  if (hint) { hint.hidden = false; setTimeout(() => hint.classList.add('show'), 700); }
   (window as any).__ready = true;
 })().catch((e) => { overlay.textContent = 'Failed to load: ' + e; console.error(e); });
 
@@ -113,15 +128,18 @@ renderer.setAnimationLoop(() => {
     girl.setMoveDir(0, 0);
   }
   if (input.hasPointer && groundPoint(camera, input.ndc, gp)) flowerUniforms.uHover.value.copy(gp);
+  const g0 = prof ? performance.now() : 0;
   girl.update(dt);
+  const girlMs = prof ? performance.now() - g0 : 0;
   ground.follow(girl.pos.x, girl.pos.z);
-  follow.update(dt, girl.pos, girl.yaw, girl.speed > 0.1);
+  follow.update(dt, girl.pos, girl.yaw, girl.vel, girl.speed > 0.1);
   const dbg = (window as any).__debugCam; // test hook: { pos:[x,y,z], look:[x,y,z] }
   if (dbg) { camera.position.set(dbg.pos[0], dbg.pos[1], dbg.pos[2]); camera.lookAt(dbg.look[0], dbg.look[1], dbg.look[2]); }
   const p0 = prof ? performance.now() : 0;
-  field.update(dt, t, girl.pos, girl.vel, girl.moveFactor, camera, prof);
+  field.update(dt, t, girl, camera, prof);
   const p1 = prof ? performance.now() : 0;
   sky!.update(t, camera, girl.pos);
+  birds.update(dt, t, camera, girl.pos, sky!.dayNight.daylight);
   // Halo. Squared so it stays out of the way through dusk and only arrives once it is
   // properly dark, rather than fading up the moment the sun touches the horizon.
   const night = 1 - sky!.dayNight.daylight;
@@ -136,11 +154,12 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
   if (prof) {
     const w2 = window as any;
-    if (!w2.__p) w2.__p = { field: 0, render: 0, n: 0, stream: 0, lod: 0, contact: 0 };
+    if (!w2.__p) w2.__p = { field: 0, render: 0, girl: 0, n: 0, stream: 0, lod: 0, contact: 0 };
     const p2 = performance.now();
-    if (w2.__p.n++ > 20) {
+    if (w2.__p.n++ > 3) {
       w2.__p.field = Math.max(w2.__p.field, p1 - p0);
       w2.__p.render = Math.max(w2.__p.render, p2 - p1);
+      w2.__p.girl = Math.max(w2.__p.girl, girlMs);
       w2.__p.stream = Math.max(w2.__p.stream, field.prof.stream);
       w2.__p.lod = Math.max(w2.__p.lod, field.prof.lod);
       w2.__p.contact = Math.max(w2.__p.contact, field.prof.contact);

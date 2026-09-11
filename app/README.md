@@ -1,38 +1,124 @@
 # Garden
 
-A 3D meadow you can walk through. One girl, four kinds of flowers (daisies, blue and red lilies,
-roses and tulips), a mouse, and a 24-hour day that passes every three minutes.
+An endless 3D meadow in the browser. You walk a girl through daisies, lilies, roses, tulips and
+grass. Flowers bend out of her way, birds cross the sky, and a full 24-hour day passes every
+three minutes. It is built with [three.js](https://threejs.org), TypeScript and Vite. There is
+no game engine and no backend: the app is a static page.
 
-## Run
+## What's in it
 
-```
-cd app
+| Feature | Description | Main code |
+|---|---|---|
+| **The girl** | A rigged, animated character you control. She blends between idle, walk and run, pivots into sharp turns, leans into curves and looks where she is heading. Her hair, skirt and tie swing on spring bones. | `src/girl/` |
+| **Flowers** | Four kinds of real scanned plants: daisies, lilies (blue and red), roses (whole bushes and single stems) and tulips (open and closed). Each is recoloured per plant, lit so light shows through the petals, swayed by wind and pushed aside by her legs as she walks. | `src/flowers/field.ts`, `shader.ts` |
+| **Grass and ground cover** | Grass clumps generated in code, plus a thin scatter of low scrub, between the flowers. | `src/flowers/grass.ts` |
+| **Endless world** | The meadow never ends. Terrain, plant placement and plant colour are all computed from world position, so any spot looks the same every time you come back to it. Only the plants the camera can see are spawned. | `src/world/terrain.ts`, `src/flowers/grid.ts` |
+| **24-hour cycle** | A simulated clock drives the sun and moon across the sky, along with sky colour, light, fog, exposure, stars and shadows. The default day lasts three minutes and changes smoothly, including across midnight. | `src/world/daynight.ts`, `sky.ts` |
+| **Birds** | Small flocks of crows either fly across the view or circle overhead. They are placed in the band of sky the camera can actually see. They stay grounded after dark. | `src/world/birds.ts` |
+| **Follow camera** | A third-person camera that eases every movement with a spring, runs slightly ahead of her direction of travel and widens its lens a little when she runs. | `src/camera/follow.ts` |
+| **Clock and compass** | An on-screen clock (top right) and a sun/moon compass (bottom right) that tells you which way to turn to see the sun or the moon. | `src/ui/` |
+| **Adaptive resolution** | Watches frame time and lowers or raises rendering resolution to keep the frame rate steady. | `src/main.ts` |
+
+## Getting started
+
+### Requirements
+
+- **Node.js 20.19+ or 22.12+** (Vite 8 needs one of these; developed on Node 22.16) and npm.
+- A browser with **WebGL 2** (current Chrome, Edge, Firefox or Safari). The meadow is dense,
+  so a discrete or recent integrated GPU is recommended.
+- **Blender 4.x**, but only if you want to rebuild the 3D models. The finished GLBs are
+  already in `public/models`, so you don't need Blender to run the app. The build scripts
+  (`tools/build_*.py`) set `ROOT` to an absolute path at the top. Point it at your own
+  checkout first. The raw scans they read from (`raw/`) are not in the repo: download them
+  from the links in `ASSETS.md`.
+
+### Install and run
+
+```bash
+git clone <this repo>
+cd Garden/app
 npm install
-npm run dev        # http://localhost:5188
-npm run build      # production bundle in dist/
+npm run dev          # opens on http://localhost:5188 (the next free port if that one is taken)
 ```
+
+Open the URL in your browser. A loading bar shows while the models and textures stream in.
+When it finishes, a hint shows the controls.
+
+### Build for production
+
+```bash
+npm run build        # type-checks with tsc, then writes the static site to app/dist/
+npm run preview      # serves dist/ locally to check the build
+```
+
+`dist/` is a plain static site, so any static host can serve it. The repo is set up for
+**Vercel**: set the project root to `app`, the build command to `npm run build` and the
+output directory to `dist`. `vercel.json` adds long cache headers for `/models`,
+`/textures` and the Basis transcoder, and `.vercelignore` keeps the dev tools out of the upload.
 
 ## Controls
 
-- **WASD** or **arrow keys**: walk her, relative to the camera. Diagonals are normalised.
-- **Scroll**: zoom the follow camera.
+| Input | Action |
+|---|---|
+| **W A S D** or **arrow keys** | walk, relative to the camera (diagonals are no faster than straight lines) |
+| **Shift** (held) | run |
+| **Mouse wheel** | zoom the camera in and out |
 
-## Where things are
+## URL flags
+
+Add these to the page URL (e.g. `http://localhost:5188/?dev&stats`). You can combine several.
+
+| Flag | Effect |
+|---|---|
+| `?dev` | time controls: pause, reset, speed ×1/×2/×5, jump to sunrise, noon, sunset or midnight |
+| `?stats` | live readout of plant counts and frame time |
+| `?prof` | frame time split into girl / streaming / LOD / contact / render |
+| `?noclock`, `?nocompass` | hide the clock or the compass |
+| `?nobirds`, `?birdseed=N` | turn birds off, or seed them so the sky repeats exactly (for screenshots) |
+| `?nodaisy` `?nolily` `?norose` `?notulip` `?nograss` `?noscrub` | remove one plant layer |
+| `?noshadow`, `?nocull`, `?nosprings`, `?plain`, `?nodetail` | turn off one rendering or animation feature to measure what it costs |
+| `?pr=0.85` | fix the pixel ratio (turns off adaptive resolution) |
+
+## Project layout
+
+```
+Garden/
+├── app/                 the web app (everything you need to run it)
+│   ├── index.html       page shell: canvas, loading bar, controls hint
+│   ├── viewer.html      standalone model inspector (viewer.html?model=/models/rose.glb)
+│   ├── public/
+│   │   ├── models/      girl, flower and bird GLBs (meshopt + KTX2 compressed)
+│   │   ├── textures/    ground textures and the sky HDRI
+│   │   └── basis/       KTX2 texture transcoder
+│   ├── src/             TypeScript source (table below)
+│   └── tools/           Playwright scripts for screenshots, perf and clock tests
+├── tools/               Blender (Python) scripts that built the GLBs from the raw scans
+├── ASSETS.md            where every model came from and how it was processed
+└── CREDITS.md           CC-BY attributions for the models
+```
 
 | File | What it does |
 |---|---|
+| `src/main.ts` | entry point: renderer, scene set-up, loading, the frame loop and adaptive resolution |
+| `src/input.ts` | keyboard and mouse input |
 | `src/config.ts` | every tunable: plant heights in metres, layer spacing and range, walk speed, push radii, wind, camera |
 | `src/flowers/field.ts` | placement, batched meshes, LOD, petal recolouring, girl-contact push |
 | `src/flowers/grid.ts` | the view-driven slot allocator that decides which plants exist |
 | `src/flowers/shader.ts` | wind sway + spring-back bend, and the petal finish (translucency, sheen, micro-relief, occlusion fade) injected into three's physical shader |
-| `src/girl/girl.ts` | click-to-walk locomotion, idle/walk blending |
-| `src/camera/follow.ts` | damped third-person camera |
+| `src/flowers/grass.ts` | procedural grass clumps (blade fans with three detail levels) and their blade gradient |
+| `src/girl/girl.ts` | locomotion with pivot turns, idle/walk blending, the procedural lean and head-look layer, contact points for the flowers |
+| `src/girl/springs.ts` | spring-bone rig for hair, skirt and tie: damped springs with colliders and swing limits |
+| `src/camera/follow.ts` | third-person camera: every motion a critically damped spring, with velocity look-ahead |
 | `src/world/daynight.ts` | the simulated clock, solar geometry and every colour/lighting ramp |
 | `src/world/sky.ts` | procedural sky dome, sun and moon lights, fog and exposure |
 | `src/ui/timeui.ts` | clock readout and the `?dev` transport controls |
 | `src/ui/compass.ts` | the sun/moon compass: a top-down sky map in camera-relative terms |
-| `src/world/ground.ts` | terrain height field |
-| `../tools/*.py` | Blender scripts that built the GLBs in `public/models` from the raw scans |
+| `src/girl/skirt.ts` | keeps her legs inside the skirt: thigh volumes measured at load push swinging panels back out |
+| `src/world/terrain.ts` | the terrain height function, written once in TypeScript and mirrored in GLSL so feet, plants and ground agree |
+| `src/world/ground.ts` | the endless ground plane that follows her, its textures and the far-field flower haze |
+| `src/world/birds.ts` | bird flocks: spawning in the visible sky band, flight paths, shader wing flap |
+| `src/viewer.ts` | the model inspector behind `viewer.html` (bounds, triangles, clips, textures) |
+| `../tools/*.py` | Blender scripts that built the GLBs in `public/models` from the raw scans, e.g. `blender -b --python tools/build_bird.py -- app/public/models/bird.glb` |
 
 ## How the endless world works
 
@@ -96,6 +182,25 @@ simulated minutes.
 The clock reads out top-right (`?noclock` hides it). `?dev` adds pause, reset, ×1/×2/×5 and
 jumps to sunrise, noon, sunset and midnight.
 
+## The birds
+
+`src/world/birds.ts` flies up to forty crows as one `InstancedMesh` of `models/bird.glb`.
+The Blender script `tools/build_bird.py` models that bird from profiles, with no download:
+about 360 triangles and a 1 m wingspan.
+
+- **The flap is done in the vertex shader.** The mesh is static, and its UV map says how far
+  each vertex is along the wing and which side it is on, so each bird flaps (or glides) with
+  its own phase at no CPU cost.
+- **Flocks are placed relative to the camera, not the world.** The follow camera looks
+  slightly down, so the sky is only the top quarter of the frame. Flocks are spawned at a
+  bearing and elevation that land them in that band, at 25–55 m, so they read as distant
+  birds rather than passing overhead out of shot.
+- **Two behaviours.** Most flocks cross the view in a loose line. About a third circle
+  ahead of the camera and then leave. Up to three flocks fly at once, a few seconds apart,
+  and none take off once the light falls below dusk.
+- `?nobirds` turns them off. `?birdseed=N` seeds the random generator so a screenshot run
+  sees the same sky every time.
+
 ## The compass
 
 Bottom-right (`?nocompass` hides it). It answers one question: which way do I turn to watch
@@ -114,7 +219,22 @@ its cost), `?nodaisy` / `?nolily` / `?norose` / `?notulip`.
 
 - Every flower type is a `BatchedMesh` with per-instance frustum culling. LOD is a geometry swap per instance; far daisies drop to a single billboard card.
 - Per-instance wind phase and disturbance state live in two float textures indexed by batch id; the bend is done in the vertex shader (rotation about the stem base), and the same bend runs in the shadow depth pass.
-- When the girl walks, flowers within a per-type radius get a push direction and a timestamp. The shader springs them back with a damped cosine, so the wake closes behind her without any CPU work.
+- When the girl walks, flowers near her get a push direction and a timestamp. The contact
+  is shaped per type from her bones (`Girl.contacts`): daisies and grass are parted by each
+  foot, so they open ahead of a step and close behind it; tulips by her knees; lilies by her
+  hips with the knees sweeping through below; a rose bush only by her body. The shader
+  springs them back with a damped cosine whose frequency and damping are per type
+  (`CONFIG.push`), and a brushed plant shivers at the top while it settles, so the wake
+  closes behind her without any CPU work.
+- The shadow pass casts every plant from the next detail level down (a swap of geometry id
+  inside `onBeforeShadow`, restored after), which is a quarter of the triangles for the
+  same silhouette; plants too far behind the camera to throw a shadow on screen are
+  skipped for that pass.
+- Streaming a tile uploads only the texture rows of the slots it filled (`Batch.touched`),
+  not the whole matrix/colour/wind textures: with seventy thousand slots the full upload was
+  several megabytes a frame and was the hitch you felt on a fast turn.
+- Ground cover is two more layers: grass clumps built in code (`grass.ts`, no shadows) and
+  a thin scatter of low scrub made from the scans' own foliage LODs, scaled to ankle height.
 - Lilies, roses and tulips are recoloured per instance. A mask built at load time marks which
   pixels of the atlas are petals (everything that is not foliage), and the shader replaces
   only those with the instance colour scaled by the texture's own luminance, so veining and
@@ -185,10 +305,31 @@ Everything below lives in `src/flowers/shader.ts` and is set per plant part thro
   so each layer hides casters further behind the camera than their shadow could reach
   (`CONFIG.shadowBehind`) for that pass only.
 - **She is never hidden.** Anything tall on the line from the camera to her chest, and well
-  short of her, dithers away with an ordered pattern. Plants at her own depth are left alone,
-  so lilies still cross in front of her legs.
+  short of her, dithers away with a fine grain (interleaved gradient noise, not a Bayer grid,
+  so a half-faded plant reads as translucent rather than as a screen door). Plants at her own
+  depth are left alone, so lilies still cross in front of her legs.
+
+## How she moves
+
+- **Turns are pivots.** The further she has to turn, the more speed she gives up to do it
+  (`CONFIG.turnSlow`), the turn rate is capped (`CONFIG.turnMax`), and her upper body leans
+  into the turn and forward on acceleration while her head looks where she is about to go.
+  All of that is a procedural layer applied to the spine and head bones after the clips.
+- **Hair, skirt and tie move** (`src/girl/springs.ts`). Each loose bone's tail is a point mass
+  on a damped spring toward the animated pose, damped relative to her body (so a steady walk
+  does not blow the hair back, but starting, stopping and turning swing it), kept out of a few
+  body colliders, and limited to a cone so a strand can never fold over the crown however hard
+  the run cycle bobs her head. `?nosprings` switches it off.
+- **The camera** never lerps: yaw, position, look target, zoom and field of view are all
+  critically damped springs (`CONFIG.camera.*Smooth`), so a change of target eases in as
+  well as out and a run of small corrections never becomes a run of small jolts. The frame
+  leads her by a fraction of her velocity and the lens widens a touch at a run.
 
 ## Test tooling
+
+These scripts live in `app/tools/` and run from the `app/` directory. They drive a headless
+Chromium through Playwright, so install that browser once with `npx playwright install
+chromium`, and keep `npm run dev` running on port 5188 in another terminal while you use them.
 
 `tools/shot.mjs` and `tools/shot_app.mjs` drive headless Chrome via Playwright for screenshots
 and metrics (used during development; needs the dev server on port 5188). `shot_app.mjs`
@@ -199,8 +340,15 @@ plant and tile counts per layer, and whether any layer ran out of tiles.
 quantity is continuous across the midnight wrap. `tools/cycle_test.mjs` runs one full
 three-minute day and reports the frame-time distribution over it.
 
-Query flags: `?stats` shows a live readout of what is on screen, `?prof` breaks the frame into
-streaming / LOD / contact / render, `?dev` adds the time controls, `?noclock` hides the clock,
-`?noshadow`, `?nocull`, and `?nodaisy` `?nolily` `?norose` `?notulip` drop a layer to
-measure what it costs. Dropping all but one is also how the plant sizes were checked: put
-the camera level with her chest and she is a 1.55 m ruler standing in the field.
+`tools/loop.mjs <outdir> [tag]` is the learning loop for feel: it scripts idle, walk, a
+walking turn, stop, run, halt and a close-up, and for each phase reports the frame-time
+distribution, frames over 33 ms, triangle count, the CPU profile (`QS="prof"`), the largest
+camera and body-yaw acceleration seen (a jolt shows up here before it shows up in a
+screenshot), and saves a screenshot per phase. Pin the resolution with `QS="pr=1.0"` so two
+runs compare like for like; the headless browser is vsync-locked at 60 Hz, so anything
+under ~16 ms reads as 16, and a second WebGL tab on the same GPU (including your own
+browser showing the site) will halve the numbers.
+
+For the query flags, see [URL flags](#url-flags) near the top. Dropping every plant layer but
+one is also how the plant sizes were checked: put the camera level with her chest and she is
+a 1.55 m ruler standing in the field.

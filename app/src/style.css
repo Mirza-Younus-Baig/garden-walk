@@ -1,8 +1,19 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #c8d6c0; font-family: Georgia, "Times New Roman", serif; }
-canvas { display: block; touch-action: none; cursor: crosshair; }
+canvas { display: block; touch-action: none; cursor: default; }
 #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   background: #dfe7d6; color: #3c4a33; transition: opacity 0.8s ease; z-index: 10; }
 #loading.hide { opacity: 0; pointer-events: none; }
 #loading .txt { font-size: 22px; letter-spacing: 0.04em; }
 #loading .track { width: 220px; height: 3px; background: #b9c7ae; border-radius: 2px; overflow: hidden; }
 #loading #bar { height: 100%; width: 0; background: #5f7f45; transition: width 0.2s; }
+
+/* Key hint: shown once the garden is up, gone for good the first time she walks. */
+#hint { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; gap: 22px; z-index: 9;
+  padding: 9px 16px; border-radius: 999px; background: rgba(10, 18, 10, 0.42); color: #fff;
+  font: 500 13px/1 system-ui, sans-serif; letter-spacing: 0.02em; pointer-events: none; user-select: none;
+  opacity: 0; transition: opacity 1.2s ease; }
+#hint.show { opacity: 1; }
+#hint.fade { opacity: 0; transition: opacity 0.9s ease; }
+#hint kbd { display: inline-block; min-width: 14px; margin-right: 3px; padding: 3px 6px; border-radius: 4px; text-align: center;
+  background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); font: 600 11px/1 ui-monospace, Menlo, monospace; }
+#hint span:last-child kbd { min-width: auto; }
