@@ -20,6 +20,7 @@ const JUMPS = [['Sunrise', 6], ['Noon', 12], ['Sunset', 18], ['Midnight', 0]] as
 export function createTimeUI(dayNight: DayNight, dev: boolean, showClock = true) {
   if (!showClock && !dev) return () => {};
   const clock = document.createElement('div');
+  clock.id = 'clock';
   clock.style.cssText = CLOCK_CSS;
   document.body.appendChild(clock);
   let shown = '';

@@ -63,6 +63,7 @@ export function bindInput(el: HTMLElement, onWheel: (dy: number) => void): Input
 
   // Pointer is kept only for the hover flutter and for wheel zoom; it no longer steers her.
   const upd = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;   // a thumb on the joystick is not a hover
     const r = el.getBoundingClientRect();
     st.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     st.hasPointer = true;

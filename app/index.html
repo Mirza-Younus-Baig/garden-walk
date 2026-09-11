@@ -2,14 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Garden</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="loading"><div class="txt">Loading garden…</div><div class="track"><div id="bar"></div></div></div>
-    <div id="hint" hidden><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span><span><kbd>Shift</kbd> run</span><span><kbd>scroll</kbd> zoom</span></div>
+    <div id="loading"><div class="txt">Loading garden…</div><div class="track"><div id="bar"></div></div><div class="turn">Turn your phone sideways</div></div>
+    <div id="hint" hidden><span class="key-only"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span><span class="key-only"><kbd>Shift</kbd> run</span><span class="key-only"><kbd>scroll</kbd> zoom</span><span class="touch-only">Left thumb: walk</span><span class="touch-only">Push to the edge: run</span><span class="touch-only">Pinch: zoom</span></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,0 +1,10 @@
+{
+  "name": "Garden",
+  "short_name": "Garden",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#dfe7d6",
+  "theme_color": "#dfe7d6",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
