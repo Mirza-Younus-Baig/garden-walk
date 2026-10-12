@@ -9,7 +9,8 @@ html.bd, html.bd body { background: #1b1218; }
 .bd-loading.hide { opacity: 0; pointer-events: none; }
 .bd-cupcake svg { width: 84px; height: 84px; animation: bd-bob 1.6s ease-in-out infinite; filter: drop-shadow(0 8px 20px rgba(255, 160, 190, 0.35)); }
 @keyframes bd-bob { 50% { transform: translateY(-8px) rotate(-3deg); } }
-.bd-load-title { font-size: 20px; letter-spacing: 0.02em; }
+.bd-load-title { font-size: 20px; letter-spacing: 0.02em; max-width: 80vw; text-align: center; }
+.bd-cupcake.still svg { animation: none; }
 .bd-track { width: 240px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .bd-bar { height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #ffb3c7, #ffd59e); transition: width 0.25s ease; }
 

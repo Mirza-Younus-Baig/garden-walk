@@ -83,7 +83,7 @@ export class Confetti {
     let any = false;
     for (let i = 0; i < this.N; i++) {
       const st = this.state[i];
-      if (st === 0) continue;
+      if (st === 0 || st === 2) continue;      // idle, or landed (its matrix was written as it landed)
       any = true;
       const o = i * 3;
       if (st === 3) {
@@ -112,8 +112,6 @@ export class Confetti {
           this.rot[o] = -Math.PI / 2 + (Math.random() - 0.5) * 0.2; this.rot[o + 2] = (Math.random() - 0.5) * 0.2;
           this.state[i] = 2;
         }
-        this.s.setScalar(1);
-      } else {
         this.s.setScalar(1);
       }
       this.e.set(this.rot[o], this.rot[o + 1], this.rot[o + 2]);
@@ -170,12 +168,18 @@ export class Sparkles {
       this.vel.set([v.x, v.y, v.z], i * 3);
       this.life[i] = -Math.random() * 0.3;        // a short stagger before each appears
     }
+    this.alive = true;
   }
 
+  private alive = false;
+
   update(dt: number) {
+    if (!this.alive) return;
+    let any = false;
     const lifeA = this.points.geometry.getAttribute('life') as THREE.BufferAttribute;
     for (let i = 0; i < this.N; i++) {
       if (this.life[i] === -1) continue;
+      any = true;
       this.life[i] += dt / 1.4;
       if (this.life[i] >= 1) { this.life[i] = -1; lifeA.setX(i, -1); continue; }
       const o = i * 3;
@@ -185,5 +189,6 @@ export class Sparkles {
     }
     lifeA.needsUpdate = true;
     (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.alive = any;
   }
 }

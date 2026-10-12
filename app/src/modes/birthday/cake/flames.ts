@@ -143,7 +143,7 @@ export class Flames {
     this.group.add(this.smoke.points);
   }
 
-  get litCount() { return this.flames.filter((f) => f.lit).length; }
+  get litCount() { let n = 0; for (const f of this.flames) if (f.lit) n++; return n; }
   get centrePoint() { return this.centre; }
 
   /** put one out now (with smoke) */
@@ -212,6 +212,8 @@ export class Flames {
     // one light for all; a shared, slower flicker on top so the room breathes
     const roomFlick = 0.9 + 0.06 * Math.sin(t * 9.1) + 0.04 * Math.sin(t * 15.7 + 1.3);
     this.light.intensity = this.lightBase * litSum * roomFlick;
+    // no candles, no candle shadows: skip the cube shadow map rather than render it dark
+    this.light.shadow.autoUpdate = litSum > 0.02;
     this.smoke.update(dt);
   }
 }
@@ -273,10 +275,16 @@ class Smoke {
         this.life[i] = 0; this.max[i] = 2.2 + Math.random() * 1.2;
       }
     }
-    this.emitters = this.emitters.filter((e) => e.left > 0);
+    // drop finished emitters in place (no new array each frame)
+    let n = 0;
+    for (const e of this.emitters) if (e.left > 0) this.emitters[n++] = e;
+    this.emitters.length = n;
+    if (!this.alive && n === 0) return;
+    let any = false;
     const age = this.points.geometry.getAttribute('age') as THREE.BufferAttribute;
     for (let i = 0; i < this.N; i++) {
       if (this.life[i] < 0) { age.setX(i, -1); continue; }
+      any = true;
       this.life[i] += dt;
       const k = this.life[i] / this.max[i];
       if (k >= 1) { this.life[i] = -1; age.setX(i, -1); continue; }
@@ -290,5 +298,7 @@ class Smoke {
     }
     age.needsUpdate = true;
     (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.alive = any || n > 0;
   }
+  private alive = false;
 }

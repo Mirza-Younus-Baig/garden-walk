@@ -161,7 +161,7 @@ async function build() {
       this.on = on;
       // intensity, not visibility: hiding a light changes the light set, which recompiles
       // every lit material on the spot (a visible hitch)
-      furn.lamp.bulbs.forEach((l, i) => { l.intensity = on ? lampIntensity[i] : 0; });
+      furn.lamp.bulbs.forEach((l, i) => { l.intensity = on ? lampIntensity[i] : 0; if (l.shadow) l.shadow.autoUpdate = on; });
       (furn.lamp.shade.material as THREE.MeshPhysicalMaterial).emissiveIntensity = on ? 0.9 : 0.05;
     },
   };
@@ -223,8 +223,12 @@ async function build() {
   const loop = makeLoop({ flames, decor, shell, tvShow, tv, record: furn.record, remote, confetti, sparkles });
   cam.setYaw(Math.PI * 0.08);
   progress.build = 1; showProgress();
-  // first frames compile every shader; do it behind the loading screen
+  // Compile every shader now, behind the loading screen, including things that only
+  // appear later (compile skips hidden objects), so nothing hitches when they do.
+  const hidden: THREE.Object3D[] = [];
+  scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
   renderer.compile(scene, camera);
+  for (const o of hidden) o.visible = false;
   renderer.setAnimationLoop(loop);
   hud.hideLoading();
   hud.caption(`Welcome, ${NAME}! Walk to the cake when you're ready ✨`, 5);
@@ -263,9 +267,12 @@ const toStage = (x: number, y: number): [number, number] =>
     if (e.pointerType !== 'mouse' && x < stage.w * 0.5) return;
     if (id !== -1) { id = -2; return; }          // a second finger: that is a pinch
     id = e.pointerId; sx = lx = x; sy = ly = y; dragged = false;
+    // keep the drag even when the pointer is released over the HUD or outside the window
+    try { el.setPointerCapture(e.pointerId); } catch { /* not capturable: fine */ }
   });
   el.addEventListener('pointermove', (e) => {
     if (e.pointerId !== id) return;
+    if (e.pointerType === 'mouse' && e.buttons === 0) { id = -1; return; }   // released elsewhere
     const [x, y] = toStage(e.clientX, e.clientY);
     if (Math.hypot(x - sx, y - sy) > 6) dragged = true;
     if (dragged) cam.drag(x - lx, y - ly);
@@ -282,6 +289,7 @@ const toStage = (x: number, y: number): [number, number] =>
   };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', () => { id = -1; });
+  addEventListener('blur', () => { id = -1; });
 }
 
 hud.onSound = () => { audio.unlock(); audio.setMuted(!audio.muted); hud.setSound(!audio.muted); };
@@ -397,5 +405,5 @@ function makeLoop(o: {
 
 build().catch((e) => {
   console.error(e);
-  hud.caption('Something went wrong loading the room: ' + (e?.message ?? e), 0);
+  hud.loadFailed('Something went wrong loading the room. Please reload the page.');
 });

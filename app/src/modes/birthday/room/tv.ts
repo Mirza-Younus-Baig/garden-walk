@@ -26,6 +26,9 @@ export class TvShow {
     this.texture = new THREE.CanvasTexture(this.c);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 4;
+    // redrawn many times a second: skip building mipmaps for every upload
+    this.texture.generateMipmaps = false;
+    this.texture.minFilter = THREE.LinearFilter;
     for (let i = 0; i < 120; i++) this.stars.push([Math.random() * W, Math.random() * H * 0.75, Math.random()]);
     const cols = ['#f6a6bf', '#ffd59e', '#a8dcc9', '#c7b3f2', '#9fcdf2'];
     for (let i = 0; i < 70; i++) this.confetti.push({ x: Math.random() * W, y: Math.random() * H, v: 30 + Math.random() * 60, r: Math.random() * 6, c: cols[i % cols.length], s: 4 + Math.random() * 6 });

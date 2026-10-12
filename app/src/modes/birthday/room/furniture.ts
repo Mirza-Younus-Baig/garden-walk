@@ -16,7 +16,7 @@ export interface Furniture {
   colliders: Collider[];
   tvScreen: THREE.Mesh;
   record: THREE.Object3D;
-  lamp: { shade: THREE.Mesh; bulbs: THREE.Light[] };
+  lamp: { shade: THREE.Mesh; bulbs: Array<THREE.SpotLight | THREE.PointLight> };
 }
 
 const HALF_PI = Math.PI / 2;
@@ -228,7 +228,7 @@ export function buildFurniture(): Furniture {
     g.position.set(x, 0, z);
     group.add(g);
     colliders.push(circle(x, z, 0.24));
-    return { shade, bulbs: [down, up] as THREE.Light[] };
+    return { shade, bulbs: [down, up] };
   })();
 
   // ---------------------------------------------------------------- bookshelf

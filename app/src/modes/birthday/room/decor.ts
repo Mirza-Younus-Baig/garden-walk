@@ -278,6 +278,9 @@ export class FairyLights {
   private base = new THREE.Color('#ffd28a');
   private c = new THREE.Color();
   boost = 0;      // 0..1, extra twinkle while the song plays
+  private b = 0;          // boost, eased
+  private ph = 0;         // accumulated twinkle phase
+  private last = -1;
 
   constructor(paths: THREE.Vector3[][], spacing = 0.12) {
     const pts: THREE.Vector3[] = [];
@@ -300,8 +303,13 @@ export class FairyLights {
   }
 
   update(t: number) {
+    const dt = this.last < 0 ? 0 : Math.min(0.1, Math.max(0, t - this.last));
+    this.last = t;
+    // speed is integrated into a phase, so changing it never makes every bulb jump at once
+    this.b += (this.boost - this.b) * Math.min(1, dt * 1.5);
+    this.ph += dt * (1.5 + this.b * 3);
     for (let i = 0; i < this.phases.length; i++) {
-      const tw = 0.75 + 0.25 * Math.sin(t * (1.5 + this.boost * 3) + this.phases[i]) * (0.6 + 0.4 * Math.sin(t * 0.37 + this.phases[i] * 2));
+      const tw = 0.75 + 0.25 * Math.sin(this.ph + this.phases[i]) * (0.6 + 0.4 * Math.sin(t * 0.37 + this.phases[i] * 2));
       this.c.copy(this.base).multiplyScalar(2.4 * tw);
       this.mesh.setColorAt(i, this.c);
     }

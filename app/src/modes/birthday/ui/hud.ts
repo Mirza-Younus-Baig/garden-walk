@@ -75,13 +75,20 @@ export class Hud {
     for (const b of [this.micBtn, this.soundBtn, helpBtn]) b.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.cardEl = el('div', 'bd-card-wrap');
     addEventListener('keydown', (e) => {
-      if (e.repeat || this.cardEl.classList.contains('open')) return;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.cardEl.classList.contains('open')) return;
       const a = this.actions.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
       if (a) { e.preventDefault(); a.run(); }
     });
   }
 
   setProgress(p: number) { this.bar.style.width = `${Math.round(p * 100)}%`; }
+  /** the room could not load: say so on the loading screen itself */
+  loadFailed(msg: string) {
+    this.loading.querySelector('.bd-load-title')!.textContent = msg;
+    this.loading.querySelector('.bd-track')?.remove();
+    this.loading.querySelector('.bd-cupcake')?.classList.add('still');
+  }
+
   hideLoading() {
     this.loading.classList.add('hide');
     setTimeout(() => this.loading.remove(), 1000);

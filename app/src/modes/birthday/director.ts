@@ -169,6 +169,8 @@ async function blowCandles(w: World, s: AbortSignal) {
     L.pos.lerpVectors(fromL, toL, e); R.pos.lerpVectors(fromR, toR, e);
     L.weight = R.weight = 0.95 * (1 - e * 0.25);
   });
+  // arrived: from here the hands rest on her lap wherever her hips go (she stands up later)
+  armTo(L, 'hips', lap, V(0.4, 0, -0.3)); armTo(R, 'hips', lap, V(0.4, 0, -0.3));
 
   // and blow: lean in, the breath sweeps the candles
   const origin = new THREE.Vector3(), dir = new THREE.Vector3();
@@ -181,7 +183,7 @@ async function blowCandles(w: World, s: AbortSignal) {
     if (!fromMic) {
       // a determined blow gets them all: any that survived go out in a quick ripple
       const left = F.flames.map((f, i) => (f.lit ? i : -1)).filter((i) => i >= 0);
-      for (const i of left) { F.extinguish(i); w.audio.puff(); await w.tasks.wait(0.06, s); }
+      for (const i of left) { F.extinguish(i); await w.tasks.wait(0.06, s); }   // (extinguish puffs)
     }
     await ease(w, s, 0.35, (e) => { F.breath.strength = (fromMic ? micStrength() : 1) * (1 - e); P.blow = 1 - e; P.lean = lerp(0.13, 0.06, e); P.lookW = lerp(0.6, 0.9, e); });
     F.breath.strength = 0;
@@ -211,8 +213,9 @@ async function celebrate(w: World, s: AbortSignal) {
   w.audio.playSong();
   // pull back to a wide view of the room
   w.cam.setShot({ pos: V(table.x + 2.3, 1.75, table.z + 2.5), look: V(table.x + 0.5, 0.75, table.z - 0.2), fov: 48 }, 1.8);
-  // up on her feet, then clap along
-  await ease(w, s, 1.0, (e) => { P.bodyW = 1 - e; P.lean = 0.12 * (1 - e); P.inhale = 0; P.arms.L.weight = P.arms.R.weight = 0.95 * (1 - e); });
+  // up on her feet, then clap along (everything eases from wherever it is)
+  const b0 = P.bodyW, l0 = P.lean, wl0 = P.arms.L.weight, wr0 = P.arms.R.weight;
+  await ease(w, s, 1.0, (e) => { P.bodyW = b0 * (1 - e); P.lean = l0 * (1 - e); P.inhale = 0; P.arms.L.weight = wl0 * (1 - e); P.arms.R.weight = wr0 * (1 - e); });
   await clapping(w, s, 7);
   w.cam.clearShot(1.6);
   // the banner settles to a small title after a while (cancelled if the candles are relit first)
@@ -438,6 +441,8 @@ export class Director {
   private focus: string | null = null;
   readonly items: Interactable[];
   private marker: THREE.Sprite;
+  private cardHit = new THREE.Box3(
+    V(LAYOUT.card.x - 0.1, LAYOUT.table.h - 0.01, LAYOUT.card.z - 0.1), V(LAYOUT.card.x + 0.1, LAYOUT.table.h + 0.12, LAYOUT.card.z + 0.1));
 
   constructor(private w: World, marker: THREE.Sprite) {
     this.marker = marker;
@@ -550,8 +555,14 @@ export class Director {
 
   /** a click or tap in the room: if it lands on something, go and use it */
   pick(ray: THREE.Ray) {
-    let best: Interactable | null = null, bestD = Infinity;
     const p = new THREE.Vector3();
+    // the card lies on the cake's table: a tap on it reads it rather than blowing the candles
+    if (ray.intersectBox(this.cardHit, p)) {
+      const cake = this.items[0];
+      const read = cake.actions(this.w).find((a) => a.run === readCard);
+      if (read) { this.perform(cake, read); return true; }
+    }
+    let best: Interactable | null = null, bestD = Infinity;
     for (const it of this.items) {
       if (ray.intersectBox(it.hit, p)) { const d = p.distanceTo(ray.origin); if (d < bestD) { bestD = d; best = it; } }
     }

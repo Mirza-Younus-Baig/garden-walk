@@ -120,7 +120,9 @@ export function bindTouch(el: HTMLElement, st: InputState, onZoom: (dy: number) 
       pinch.set(joyId, [cx, cy]);
       release();
     }
-    if (joyId < 0 && pinch.size === 0 && x < w * 0.5) {
+    // (one finger already down on the right is a look or the start of a pinch; the left
+    // thumb can still walk; only a full two-finger pinch keeps the joystick away)
+    if (joyId < 0 && pinch.size < 2 && x < w * 0.5) {
       joyId = e.pointerId; joyT = performance.now();
       // the base follows the thumb, but stays whole on screen
       const r = base.offsetWidth / 2 || 64;
