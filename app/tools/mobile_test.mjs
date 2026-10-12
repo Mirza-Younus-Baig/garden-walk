@@ -1,7 +1,7 @@
 // node mobile_test.mjs <outdir>  — emulated phone (portrait + landscape) and desktop regression
 import { chromium } from 'playwright';
 const out = process.argv[2];
-const URL = 'http://localhost:5188/?noclock&birdseed=3';
+const URL = 'http://localhost:5188/?mode=garden&noclock&birdseed=3';
 const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist'] });
 
 async function phone(name, w, h) {

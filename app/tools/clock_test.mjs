@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal'] });
 const p = await b.newPage({ viewport: { width: 1024, height: 640 } });
-await p.goto('http://localhost:5188/?dev', { waitUntil: 'load' });
+await p.goto('http://localhost:5188/?mode=garden&dev', { waitUntil: 'load' });
 await p.waitForFunction(() => window.__ready, null, { timeout: 180000 });
 // clock.hour is the live value; dayNight.hour is only refreshed on the next frame
 const state = () => p.evaluate(() => ({ hour: +window.__sky.dayNight.clock.hour.toFixed(4), paused: window.__sky.dayNight.clock.paused, speed: window.__sky.dayNight.clock.speed }));

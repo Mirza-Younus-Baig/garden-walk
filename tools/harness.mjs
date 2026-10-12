@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 // playwright is a devDependency of the app, and these scripts sit outside it
 const { chromium } = createRequire(new URL('../app/package.json', import.meta.url))('playwright');
 
-const APP_URL = process.env.GARDEN_URL ?? 'http://localhost:5188/';
+const APP_URL = process.env.GARDEN_URL ?? 'http://localhost:5188/?mode=garden';
 const results = [];
 const open = [];
 

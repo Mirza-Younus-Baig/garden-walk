@@ -1,0 +1,63 @@
+body.menu-open { overflow: auto; background: #1d1424; }
+
+.menu { position: relative; min-height: 100vh; min-height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: clamp(20px, 4vh, 40px); padding: 32px 16px 28px; overflow: hidden;
+  font-family: 'Fredoka', system-ui, sans-serif; color: #fdf3ea;
+  background: radial-gradient(120% 80% at 50% 0%, #4b2c4f 0%, #2a1a33 45%, #160f1d 100%);
+  opacity: 0; transition: opacity 0.9s ease; }
+.menu.in { opacity: 1; }
+
+.menu-sky { position: absolute; inset: 0; pointer-events: none; }
+.menu-sky i { position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s); border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 160, 0.9), rgba(255, 220, 160, 0) 70%);
+  animation: twinkle var(--d) ease-in-out infinite alternate; opacity: 0.25; }
+@keyframes twinkle { to { opacity: 0.9; transform: translateY(-10px) scale(1.3); } }
+
+.menu header { position: relative; text-align: center; }
+.menu-eyebrow { margin: 0; font-size: 15px; letter-spacing: 0.22em; text-transform: uppercase; color: #e8c9d6; opacity: 0.85; }
+.menu h1 { margin: 2px 0 6px; font: 700 clamp(56px, 11vw, 104px)/1.05 'Dancing Script', cursive; color: #ffe1ea;
+  text-shadow: 0 0 28px rgba(255, 160, 190, 0.45), 0 2px 0 rgba(0, 0, 0, 0.25); }
+.menu-sub { margin: 0; font-size: 18px; color: #f3dfe8; opacity: 0.9; }
+
+.menu-cards { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 340px)); gap: 22px; width: 100%; justify-content: center; }
+.menu-card { display: flex; flex-direction: column; overflow: hidden; border-radius: 22px; text-decoration: none; color: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px); transition: transform 0.35s cubic-bezier(.2, .8, .2, 1), box-shadow 0.35s ease, border-color 0.35s ease; }
+.menu-card:hover, .menu-card:focus-visible { transform: translateY(-6px); border-color: var(--accent);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--accent), 0 0 40px -10px var(--accent); outline: none; }
+.menu-card .art { display: grid; place-items: center; height: 170px;
+  background: radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 70%); }
+.menu-card .art svg { width: 140px; height: 140px; transition: transform 0.5s ease; }
+.menu-card:hover .art svg { transform: scale(1.06) rotate(-2deg); }
+.menu-card .txt { padding: 4px 22px 22px; }
+.menu-card h2 { margin: 0 0 6px; font-weight: 600; font-size: 24px; }
+.menu-card p { margin: 0 0 14px; font-size: 15px; line-height: 1.45; color: #ecdde6; }
+.menu-card .go { font-weight: 600; color: var(--accent); letter-spacing: 0.02em; }
+
+.fl { transform-box: fill-box; transform-origin: 50% 100%; animation: flick 0.9s ease-in-out infinite alternate; }
+@keyframes flick { from { transform: scale(0.9, 1) rotate(-4deg); } to { transform: scale(1.05, 1.12) rotate(4deg); } }
+.spin { transform-origin: 60px 44px; animation: sway 4s ease-in-out infinite alternate; }
+@keyframes sway { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
+
+.menu footer { position: relative; font-size: 13px; color: #cdb8c6; opacity: 0.8; text-align: center; }
+.menu kbd { display: inline-block; margin: 0 2px; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08); font: 600 11px/1.2 ui-monospace, Menlo, monospace; }
+
+@media (max-width: 640px) {
+  .menu-cards { grid-template-columns: minmax(0, 420px); }
+  .menu-card { flex-direction: row; align-items: center; }
+  .menu-card .art { height: auto; min-width: 110px; padding: 12px 0 12px 8px; }
+  .menu-card .art svg { width: 92px; height: 92px; }
+  .menu-card .txt { padding: 16px 18px 16px 6px; }
+  .menu-card h2 { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .menu *, .menu { animation: none !important; transition: none !important; } }
+
+/* back-to-menu, shown inside every mode */
+.menu-home { position: fixed; top: calc(12px + var(--safe-t, 0px)); left: calc(12px + var(--safe-l, 0px)); z-index: 30;
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #fff;
+  background: rgba(20, 12, 24, 0.42); border: 1px solid rgba(255, 255, 255, 0.25); backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); transition: transform 0.2s ease, background 0.2s ease; }
+.menu-home:hover { transform: scale(1.08); background: rgba(20, 12, 24, 0.6); }
+.menu-home svg { width: 20px; height: 20px; }
