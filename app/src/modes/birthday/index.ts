@@ -92,6 +92,8 @@ let pose: PoseRig | null = null;
 // ---------------------------------------------------------------- build
 async function build() {
   const girlLoad = girl.load();
+  // the song renders on the audio thread while the room builds
+  audio.prerender().catch((e) => console.warn('song render failed', e));
   const bouquetLoad = buildBouquet(gltfLoader);
   await Promise.all([document.fonts.load('700 64px "Dancing Script"'), document.fonts.load('600 40px Fredoka')]).catch(() => {});
   const step = async (k: number) => { progress.build = k; showProgress(); await nextFrame(); };
@@ -152,11 +154,14 @@ async function build() {
     on: false,
     set(on: boolean) { this.on = on; screenMat.emissiveIntensity = on ? 0.75 : 0; tvLight.intensity = on ? 4 : 0; },
   };
+  const lampIntensity = furn.lamp.bulbs.map((l) => l.intensity);
   const lampState = {
     on: true,
     set(on: boolean) {
       this.on = on;
-      for (const l of furn.lamp.bulbs) l.visible = on;
+      // intensity, not visibility: hiding a light changes the light set, which recompiles
+      // every lit material on the spot (a visible hitch)
+      furn.lamp.bulbs.forEach((l, i) => { l.intensity = on ? lampIntensity[i] : 0; });
       (furn.lamp.shade.material as THREE.MeshPhysicalMaterial).emissiveIntensity = on ? 0.9 : 0.05;
     },
   };
@@ -240,7 +245,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyT') director?.gesture('twirl');
   if (e.code === 'KeyG') director?.gesture('wave');
 });
-addEventListener('pointerdown', () => audio.unlock(), { capture: true });
+// (on iOS a touch's pointerdown is not a user activation; its pointerup / touchend / click are)
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click'] as const) addEventListener(ev, () => audio.unlock(), { capture: true });
 
 // stage coordinates (the page may be turned a quarter on a phone held upright)
 const toStage = (x: number, y: number): [number, number] =>
@@ -279,10 +285,12 @@ const toStage = (x: number, y: number): [number, number] =>
 }
 
 hud.onSound = () => { audio.unlock(); audio.setMuted(!audio.muted); hud.setSound(!audio.muted); };
+let micBusy = false;
 hud.onMic = async () => {
-  if (!world) return;
+  if (!world || micBusy) return;
   if (world.state.micOn) { audio.disableMic(); world.state.micOn = false; hud.setMic('off'); director?.setMic(null); return; }
-  const ok = await audio.enableMic();
+  micBusy = true;
+  const ok = await audio.enableMic().finally(() => { micBusy = false; });
   world.state.micOn = ok;
   hud.setMic(ok ? 'on' : 'denied');
   hud.caption(ok ? 'Microphone on — blow at the cake to put the candles out 🎤' : 'No microphone — the E key works just as well', 4);
@@ -353,7 +361,8 @@ function makeLoop(o: {
     const st = audio.songTime;
     const line = st >= 0 ? audio.score.lyrics.find((l) => st >= l.t && st < l.end) : null;
     hud.lyric(line ? line.text : null, !!line?.name);
-    if (!audio.songPlaying && w.state.celebrated) w.fairyBoost(0);
+    // the fairy lights twinkle harder for exactly as long as the song plays
+    w.fairyBoost(audio.songPlaying ? 1 : 0);
   };
   return () => {
     timer.update();
@@ -364,7 +373,9 @@ function makeLoop(o: {
     // test hook: `__steps` runs several simulation steps per drawn frame, so a scripted
     // test gets through an action in reasonable time even when drawing is slow
     const steps = Math.max(1, Math.min(20, (window as any).__steps ?? 1));
-    for (let i = 0; i < steps; i++) step(dt, t + i * dt);
+    // A zero-length step is skipped, not run: the animation mixer does not restore the
+    // clip pose on a zero step, so the pose layer on top would compound frame on frame.
+    if (dt > 0) for (let i = 0; i < steps; i++) step(dt, t + i * dt);
     cam.update(dt * steps, girl.pos, girl.yaw, girl.speed > 0.15);
     const dbg = (window as any).__debugCam;   // test hook: { pos: [x,y,z], look: [x,y,z], fov? }
     if (dbg) { camera.position.fromArray(dbg.pos); camera.lookAt(dbg.look[0], dbg.look[1], dbg.look[2]); if (dbg.fov) { camera.fov = dbg.fov; camera.updateProjectionMatrix(); } }

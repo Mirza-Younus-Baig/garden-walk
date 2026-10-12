@@ -76,7 +76,7 @@ export class PoseRig {
   blow = 0;
   arms: { L: ArmGoal; R: ArmGoal } = {
     L: { weight: 0, space: 'chest', pos: V(0, 0, 0.2), pole: V(0.4, -0.3, -0.3) },
-    R: { weight: 0, space: 'chest', pos: V(0, 0, 0.2), pole: V(-0.4, -0.3, -0.3) },
+    R: { weight: 0, space: 'chest', pos: V(0, 0, 0.2), pole: V(0.4, -0.3, -0.3) },
   };
   /** world point she looks at, and how much */
   look = new THREE.Vector3();
@@ -183,8 +183,9 @@ export class PoseRig {
     // shoulders rise on the breath in
     if (this.inhale > 1e-3) {
       const s = this.inhale * 0.1;
-      rotateBoneWorld(this.scapL, _q.setFromAxisAngle(_f, -s * this.lSide));
-      rotateBoneWorld(this.scapR, _q.setFromAxisAngle(_f, s * this.lSide));
+      // a turn about forward lifts her left side when positive (forward x left = up)
+      rotateBoneWorld(this.scapL, _q.setFromAxisAngle(_f, s * this.lSide));
+      rotateBoneWorld(this.scapR, _q.setFromAxisAngle(_f, -s * this.lSide));
     }
     this.chest.updateMatrixWorld(true);
 
@@ -222,7 +223,8 @@ export class PoseRig {
         // turn the hand at the wrist so the fingers point the asked way
         ch.end.getWorldPosition(_p); (isL ? this.fingerL : this.fingerR).getWorldPosition(_d);
         _d.sub(_p).normalize();
-        this.toWorld(_t.set(this.sx(isL, goal.fingers.x), goal.fingers.y, goal.fingers.z), _t, _w.set(0, 0, 0)).normalize();
+        // (input and output must be different vectors: toWorld writes its output first)
+        this.toWorld(_p.set(this.sx(isL, goal.fingers.x), goal.fingers.y, goal.fingers.z), _t, _w.set(0, 0, 0)).normalize();
         aimBone(ch.end, _d, _t, goal.weight * 0.85);
       }
     }
@@ -258,6 +260,13 @@ export class PoseRig {
     this.head.getWorldQuaternion(_q);
     _d.copy(this.headFwd).applyQuaternion(_q).normalize();
     return out.addScaledVector(_d, 0.1).addScaledVector(UP, 0.02);
+  }
+
+  /** where an arm goal in `space` lands in the world right now (for gliding between goals) */
+  goalWorld(space: Space, pos: THREE.Vector3, isLeft: boolean, out: THREE.Vector3) {
+    if (space === 'world') return out.copy(pos);
+    const origin = space === 'chest' ? this.chest.getWorldPosition(_w) : space === 'hips' ? this.hips.getWorldPosition(_w) : this.root.position;
+    return this.toWorld(_d.set(this.sx(isLeft, pos.x), pos.y, pos.z), out, origin);
   }
 
   /** the hand, for placing things in it */

@@ -106,8 +106,13 @@ html.touch .bd-prompt.show { transform: translate(0, 0); }
   font: 500 22px/1 'Fredoka', sans-serif; color: #5a3448; background: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); z-index: 2; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bd-card-cover, .bd-card, .bd-banner, .bd-prompt, .bd-lyrics.show { transition: none !important; animation: none !important; opacity: 1; }
+  /* no movement, but things still appear and disappear */
+  .bd-card-cover, .bd-card, .bd-banner, .bd-prompt, .bd-lyrics, .bd-caption, .bd-help { transition: opacity 0.2s linear !important; animation: none !important; }
+  .bd-lyrics.show { opacity: 1; }
 }
+/* a phone held upright: the page is laid out sideways, so size the card by the stage */
+html.rotated .bd-card { width: min(440px, calc(var(--sw) * 0.86)); }
+html.rotated .bd-card-inside { max-height: calc(var(--sh) * 0.82); }
 @media (max-height: 420px) {
   .bd-banner .big { font-size: 64px; }
   .bd-lyrics { bottom: calc(86px + var(--safe-b, 0px)); font-size: 26px; }

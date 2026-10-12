@@ -173,13 +173,18 @@ export class Hud {
       // a forced reflow commits the closed state, so adding `unfold` animates from it
       void this.cardEl.offsetWidth;
       this.cardEl.classList.add('unfold');
+      let closed = false;
       const close = () => {
+        if (closed) return;
+        closed = true;
+        clearTimeout(arm);
         removeEventListener('keydown', onKey);
         this.cardEl.classList.remove('unfold');
         setTimeout(() => { this.cardEl.classList.remove('open'); this.cardEl.innerHTML = ''; resolve(); }, 600);
       };
       const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ' || e.key.toLowerCase() === 'e') { e.preventDefault(); close(); } };
-      setTimeout(() => addEventListener('keydown', onKey), 300);
+      // keys close it only after a moment, so the key that opened it does not also close it
+      const arm = window.setTimeout(() => { if (!closed) addEventListener('keydown', onKey); }, 300);
       this.cardEl.querySelector<HTMLButtonElement>('.bd-card-close')!.onclick = close;
       this.cardEl.onclick = (e) => { if (e.target === this.cardEl) close(); };
     });

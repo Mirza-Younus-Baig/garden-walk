@@ -10,7 +10,9 @@ const script = (process.argv[3] ?? 'wait:2|shot:start').split('|').filter(Boolea
 const URL = process.env.URL ?? 'http://localhost:5188/?mode=birthday';
 const W = +(process.env.W ?? 1280), H = +(process.env.H ?? 720);
 const b = await chromium.launch({ executablePath: process.env.CHROME ?? '/opt/pw-browsers/chromium', headless: true,
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
+    // a fake microphone (a steady tone) with permission granted, for the mic path
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const ctx = await b.newContext(process.env.MOBILE ? { viewport: { width: W, height: H }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 const p = await ctx.newPage();
 const errors = [];
@@ -36,6 +38,7 @@ for (const step of script) {
   }
   else if (kind === 'act') { const [id, i] = arg.split(':'); await p.evaluate(([id, i]) => window.__bday.act(id, +(i ?? 0)), [id, i ?? '0']); }
   else if (kind === 'key') { const [code, s] = arg.split(':'); await p.keyboard.down(code); await p.waitForTimeout(+s * 1000); await p.keyboard.up(code); }
+  else if (kind === 'click') await p.click(arg);
   else if (kind === 'eval') console.log('eval:', JSON.stringify(await p.evaluate(arg)));
   else if (kind === 'evalf') console.log('eval:', JSON.stringify(await p.evaluate(readFileSync(arg, 'utf8'))));
   else if (kind === 'until') await p.waitForFunction(arg, null, { timeout: 600000, polling: 500 });

@@ -79,7 +79,7 @@ export class TvShow {
       ctx.font = '700 150px "Dancing Script", cursive';
       ctx.fillStyle = '#c2456f';
       const bob = Math.sin(t * 2) * 6;
-      ctx.fillText(this.name, W / 2, H * 0.62 + bob);
+      ctx.fillText(this.name, W / 2, H * 0.62 + bob, W * 0.9);
     } else if (i === 1) {
       // a cake with candles that flicker
       ctx.fillStyle = '#2b2140'; ctx.fillRect(0, 0, W, H);

@@ -127,6 +127,12 @@ export class Balloons {
 }
 
 // ---------------------------------------------------------------- foil letters
+/** upper-case, accents folded, keeping only characters the font subset can draw */
+export function foldForFont(text: string, glyphs: Record<string, unknown>): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim()
+    .split('').filter((c) => c === ' ' || c in glyphs).join('').replace(/\s+/g, ' ').trim();
+}
+
 export function foilLetters(text: string, centre: THREE.Vector3, size = 0.34): THREE.Group {
   const g = new THREE.Group();
   g.name = 'letters';
@@ -138,17 +144,26 @@ export function foilLetters(text: string, centre: THREE.Vector3, size = 0.34): T
     return toTexture(normalFromHeight(h, w, w, 3), false);
   })();
   const gold = phys('#efc874', 0.2, { metalness: 1, clearcoat: 1, clearcoatRoughness: 0.12, normalMap: crinkle, normalScale: new THREE.Vector2(0.25, 0.25) });
-  const letters = [...text];
+  // Only what the font has: accents are folded away (Zoë -> ZOE) and anything else the
+  // subset lacks is dropped, so no name can stop the room from loading. Spaces stay as gaps.
+  const glyphs = (font.data as any).glyphs as Record<string, unknown>;
+  const letters = [...foldForFont(text, glyphs)];
+  const SPACE = -1;
   const geos = letters.map((ch) => {
+    if (ch === ' ') return null;
     const geo = new TextGeometry(ch, { font, size, depth: 0.03, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.035, bevelSize: 0.022, bevelSegments: 6 });
     geo.computeBoundingBox();
-    return geo;
+    return geo.boundingBox!.isEmpty() ? null : geo;
   });
-  const widths = geos.map((gg) => gg.boundingBox!.max.x - gg.boundingBox!.min.x);
+  const widths = geos.map((gg) => (gg ? gg.boundingBox!.max.x - gg.boundingBox!.min.x : SPACE));
   const gap = size * 0.12;
-  const total = widths.reduce((a, b) => a + b, 0) + gap * (letters.length - 1);
+  const total = widths.reduce((a, b) => a + (b === SPACE ? size * 0.35 : b), 0) + gap * Math.max(0, letters.length - 1);
+  // long names shrink to fit the wall between the corner and the curtain
+  const fit = Math.min(1, 1.6 / Math.max(total, 1e-3));
+  g.scale.setScalar(fit);
   let x = -total / 2;
   geos.forEach((geo, i) => {
+    if (!geo) { x += size * 0.35 + gap; return; }
     const bb = geo.boundingBox!;
     geo.translate(-bb.min.x - widths[i] / 2, -(bb.min.y + bb.max.y) / 2, 0);
     const m = new THREE.Mesh(geo, gold);

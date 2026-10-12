@@ -212,7 +212,6 @@ export class Flames {
     // one light for all; a shared, slower flicker on top so the room breathes
     const roomFlick = 0.9 + 0.06 * Math.sin(t * 9.1) + 0.04 * Math.sin(t * 15.7 + 1.3);
     this.light.intensity = this.lightBase * litSum * roomFlick;
-    this.light.visible = litSum > 0.02;
     this.smoke.update(dt);
   }
 }

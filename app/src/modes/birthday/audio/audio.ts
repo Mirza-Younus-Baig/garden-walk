@@ -25,7 +25,7 @@ export class Audio {
   score: Score;
   muted = false;
   /** the microphone, once she has allowed it */
-  mic: { analyser: AnalyserNode; detector: BlowDetector; time: Float32Array<ArrayBuffer>; db: Float32Array<ArrayBuffer>; power: Float32Array; stream: MediaStream } | null = null;
+  mic: { analyser: AnalyserNode; source: MediaStreamAudioSourceNode; detector: BlowDetector; time: Float32Array<ArrayBuffer>; db: Float32Array<ArrayBuffer>; power: Float32Array; stream: MediaStream } | null = null;
   onSongEnd?: () => void;
 
   constructor(name: string) {
@@ -50,7 +50,7 @@ export class Audio {
     this.reverb.buffer = impulse(ctx, 1.6, 2.6);
     const wet = ctx.createGain(); wet.gain.value = 0.22;
     this.reverb.connect(wet).connect(this.master);
-    this.renderSong();
+    this.prerender();
     this.startAmbience();
   }
 
@@ -60,6 +60,15 @@ export class Audio {
   }
 
   // ---------------------------------------------------------------- the song
+  /**
+   * Render the song into a buffer. An OfflineAudioContext needs no user gesture, so this
+   * starts at load, behind the loading screen; the buffer plays in the live context later.
+   */
+  prerender(): Promise<AudioBuffer> {
+    // never throw into the caller: a browser without offline audio just has no song
+    try { return this.renderSong(); } catch (e) { return Promise.reject(e); }
+  }
+
   private renderSong() {
     if (this.songRender) return this.songRender;
     const sr = 44100;
@@ -77,10 +86,16 @@ export class Audio {
   /** seconds into the song, or -1 */
   get songTime() { return this.songSrc && this.ctx ? this.ctx.currentTime - this.songStart : -1; }
 
+  private playToken = 0;
+
   async playSong() {
     if (!this.ctx) return;
     this.stopSong(0.05);
-    const buf = this.songBuf ?? await this.renderSong();
+    const token = ++this.playToken;
+    let buf: AudioBuffer;
+    try { buf = this.songBuf ?? await this.prerender(); } catch { return; }
+    // stopped (or restarted) while the song was still rendering
+    if (token !== this.playToken) return;
     const ctx = this.ctx;
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -101,6 +116,7 @@ export class Audio {
   }
 
   stopSong(fade = 0.6) {
+    this.playToken++;
     if (!this.songSrc || !this.ctx) return;
     const src = this.songSrc, g = this.songGain!;
     this.songSrc = null; this.songGain = null;
@@ -280,8 +296,9 @@ export class Audio {
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.2;
       src.connect(analyser);
+      this.disableMic();             // never two live streams
       this.mic = {
-        analyser, stream, detector: new BlowDetector(),
+        analyser, source: src, stream, detector: new BlowDetector(),
         time: new Float32Array(analyser.fftSize), db: new Float32Array(analyser.frequencyBinCount), power: new Float32Array(analyser.frequencyBinCount),
       };
       return true;
@@ -290,6 +307,7 @@ export class Audio {
 
   disableMic() {
     this.mic?.stream.getTracks().forEach((t) => t.stop());
+    this.mic?.source.disconnect();
     this.mic = null;
   }
 

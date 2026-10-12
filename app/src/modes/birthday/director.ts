@@ -119,7 +119,7 @@ async function relax(w: World, s: AbortSignal | null, sec = 0.6) {
 /** reach the right hand to a world point and back; `at` runs at full reach */
 async function reach(w: World, s: AbortSignal, point: THREE.Vector3, at: () => void, hold = 0.25, lean = 0) {
   const R = w.pose.arms.R;
-  armTo(R, 'world', point, V(-0.45, -0.35, -0.2));
+  armTo(R, 'world', point, V(0.45, -0.35, -0.2));
   w.pose.look.copy(point);
   await ease(w, s, 0.55, (e) => { R.weight = e; w.pose.lookW = e; w.pose.lean = lean * e; });
   at();
@@ -134,7 +134,8 @@ async function blowCandles(w: World, s: AbortSignal) {
   const cakeTop = V(cake.x, LAYOUT.table.h + 0.29, cake.z);
   await goTo(w, s, cake.x + 0.68, cake.z, -HALF);
   // a low, close shot across the candles to her face
-  w.cam.setShot({ pos: V(cake.x - 0.95, 0.98, cake.z + 0.62), look: V(cake.x + 0.38, 0.86, cake.z), fov: 40 }, 1.6);
+  // across the candles to her face: high enough that her face is above the flames
+  w.cam.setShot({ pos: V(cake.x - 0.95, 1.18, cake.z + 0.42), look: V(cake.x + 0.5, 0.82, cake.z - 0.02), fov: 42 }, 1.6);
   P.body = KNEEL;
   P.look.copy(cakeTop);
   await ease(w, s, 1.1, (e) => { P.bodyW = e; P.lookW = e * 0.8; P.lean = Math.sin(e * Math.PI) * 0.18; });
@@ -153,15 +154,21 @@ async function blowCandles(w: World, s: AbortSignal) {
   let fromMic = false;
   if (w.state.micOn) {
     w.hud.caption('Now blow into your microphone! 💨', 0);
-    fromMic = await w.tasks.until(() => !!micBlow.reading?.blowing, 15, s);
+    fromMic = await w.tasks.until(() => !w.state.micOn || !!micBlow.reading?.blowing, 15, s) && w.state.micOn;
     w.hud.hideCaption();
   }
 
-  // breathe in: hands down to her thighs, shoulders rise
-  armTo(L, 'hips', V(0.13, 0.12, 0.24), V(0.4, 0, -0.3));
-  armTo(R, 'hips', V(0.13, 0.12, 0.24), V(0.4, 0, -0.3));
+  // breathe in: hands glide down from her chin to her thighs, shoulders rise
+  const lap = V(0.12, 0.06, 0.17);
+  const fromL = P.wrist(true, V(0, 0, 0)), fromR = P.wrist(false, V(0, 0, 0));
+  const toL = P.goalWorld('hips', lap, true, V(0, 0, 0)), toR = P.goalWorld('hips', lap, false, V(0, 0, 0));
+  armTo(L, 'world', fromL, V(0.4, 0, -0.3)); armTo(R, 'world', fromR, V(0.4, 0, -0.3));
   if (!fromMic) w.audio.inhale(0.75);
-  await ease(w, s, fromMic ? 0.3 : 0.75, (e) => { P.inhale = e; L.weight = R.weight = 0.95 * (1 - e * 0.25); P.lean = -0.05 * e; });
+  await ease(w, s, fromMic ? 0.4 : 0.75, (e) => {
+    P.inhale = e; P.lean = -0.05 * e;
+    L.pos.lerpVectors(fromL, toL, e); R.pos.lerpVectors(fromR, toR, e);
+    L.weight = R.weight = 0.95 * (1 - e * 0.25);
+  });
 
   // and blow: lean in, the breath sweeps the candles
   const origin = new THREE.Vector3(), dir = new THREE.Vector3();
@@ -169,20 +176,20 @@ async function blowCandles(w: World, s: AbortSignal) {
   let tries = 0;
   for (;;) {
     if (!fromMic || tries === 0) w.audio.blow(1.25);
-    await ease(w, s, 0.3, (e) => { P.inhale = 1 - e; P.blow = e; P.lean = lerp(-0.05, 0.2, e); P.lookW = lerp(1, 0.55, e); aim(); F.breath.strength = fromMic ? micStrength() : e; });
+    await ease(w, s, 0.3, (e) => { P.inhale = 1 - e; P.blow = e; P.lean = lerp(-0.05, 0.13, e); P.lookW = lerp(1, 0.6, e); aim(); F.breath.strength = fromMic ? micStrength() : e; });
     await w.tasks.during(1.0, () => { aim(); F.breath.strength = fromMic ? micStrength() : 1; }, s);
     if (!fromMic) {
       // a determined blow gets them all: any that survived go out in a quick ripple
       const left = F.flames.map((f, i) => (f.lit ? i : -1)).filter((i) => i >= 0);
       for (const i of left) { F.extinguish(i); w.audio.puff(); await w.tasks.wait(0.06, s); }
     }
-    await ease(w, s, 0.35, (e) => { F.breath.strength = (fromMic ? micStrength() : 1) * (1 - e); P.blow = 1 - e; P.lean = lerp(0.2, 0.08, e); P.lookW = lerp(0.55, 0.9, e); });
+    await ease(w, s, 0.35, (e) => { F.breath.strength = (fromMic ? micStrength() : 1) * (1 - e); P.blow = 1 - e; P.lean = lerp(0.13, 0.06, e); P.lookW = lerp(0.6, 0.9, e); });
     F.breath.strength = 0;
     if (F.litCount === 0) break;
     // mic: a few candles may be left; she gets another go
     tries++;
     w.hud.caption(F.litCount === 1 ? 'One left! Blow again 💨' : `${F.litCount} left — blow again! 💨`, 0);
-    const again = await w.tasks.until(() => !!micBlow.reading?.blowing, 12, s);
+    const again = await w.tasks.until(() => !w.state.micOn || !!micBlow.reading?.blowing, 12, s) && w.state.micOn;
     w.hud.hideCaption();
     if (!again) fromMic = false;
   }
@@ -202,7 +209,6 @@ async function celebrate(w: World, s: AbortSignal) {
   w.sparkles.emit(V(LAYOUT.cake.x, 0.9, LAYOUT.cake.z), 30, 0.9, 0.3);
   w.hud.banner('big');
   w.audio.playSong();
-  w.fairyBoost(1);
   // pull back to a wide view of the room
   w.cam.setShot({ pos: V(table.x + 2.3, 1.75, table.z + 2.5), look: V(table.x + 0.5, 0.75, table.z - 0.2), fov: 48 }, 1.8);
   // up on her feet, then clap along
@@ -240,10 +246,9 @@ async function relight(w: World, s: AbortSignal) {
   clearTimeout(bannerTimer);
   w.hud.banner('hidden');
   w.audio.stopSong(1.2);
-  w.fairyBoost(0);
   w.confetti.clear();
   const R = w.pose.arms.R;
-  armTo(R, 'world', V(cake.x + 0.12, LAYOUT.table.h + 0.32, cake.z), V(-0.45, -0.35, -0.2));
+  armTo(R, 'world', V(cake.x + 0.12, LAYOUT.table.h + 0.32, cake.z), V(0.45, -0.35, -0.2));
   w.pose.look.set(cake.x, LAYOUT.table.h + 0.25, cake.z);
   await ease(w, s, 0.6, (e) => { R.weight = e * 0.9; w.pose.lookW = e; w.pose.lean = 0.25 * e; });
   for (let i = 0; i < F.flames.length; i++) {
@@ -309,7 +314,7 @@ async function music(w: World, s: AbortSignal) {
   await goTo(w, s, -2.74, LAYOUT.record.z, -HALF);
   await reach(w, s, V(-3.24, 0.66, LAYOUT.record.z - 0.05), () => {
     w.audio.click();
-    if (w.audio.songPlaying) { w.audio.stopSong(); w.fairyBoost(0); } else { w.audio.playSong(); w.fairyBoost(1); }
+    if (w.audio.songPlaying) w.audio.stopSong(); else w.audio.playSong();
   }, 0.25, 0.3);
 }
 
@@ -336,7 +341,8 @@ async function openGift(w: World, s: AbortSignal) {
     lid.position.set(p0.x + 0.42 * e, p0.y + Math.sin(e * Math.PI) * 0.35 - 0.33 * e, p0.z - 0.1 * e);
     lid.rotation.set(r0.x - 0.9 * Math.sin(e * Math.PI) * 0.6, r0.y + 0.6 * e, r0.z - 0.25 * e);
   }, s);
-  await ease(w, s, 0.4, (e) => { L.pos.y += 0.006 * e; R.pos.y += 0.006 * e; L.weight = R.weight = 1 - e * 0.6; });
+  const yL = L.pos.y, yR = R.pos.y;
+  await ease(w, s, 0.4, (e) => { L.pos.y = yL + 0.06 * e; R.pos.y = yR + 0.06 * e; L.weight = R.weight = 1 - e * 0.6; });
   await lidUp;
   // and up pops the teddy, with sparkles
   const T = G.teddy;
@@ -360,9 +366,9 @@ async function greetTeddy(w: World, s: AbortSignal) {
   await ease(w, s, 0.4, (e) => { w.pose.lookW = e; });
   const T = w.gift.teddy;
   const wiggle = w.tasks.during(1.6, (k) => { T.rotation.z = Math.sin(k * Math.PI * 6) * 0.18 * (1 - k); T.rotation.y = Math.sin(k * Math.PI * 2) * 0.3; }, s);
+  wiggle.catch(() => {});            // an abort is handled below, through waving()
   w.audio.boing();
-  await waving(w, s, 1.6);
-  await wiggle;
+  try { await waving(w, s, 1.6); await wiggle; } finally { T.rotation.set(0, 0, 0); }
 }
 
 async function bopBalloons(w: World, s: AbortSignal) {
@@ -500,25 +506,28 @@ export class Director {
     // from the sofa, getting up comes first
     const needsStand = this.w.state.seated && item.id !== 'sofa';
     this.busy = true;
-    this.cancellable = !!a.cancellable;
+    // getting up off the sofa always finishes; the action after it may be cancellable
+    this.cancellable = !needsStand && !!a.cancellable;
     const ctrl = new AbortController();
     this.ctrl = ctrl;
     this.w.hud.setPrompt(null, []);
     this.marker.visible = false;
+    let aborted = false;
     (async () => {
       try {
-        if (needsStand) await standUp(this.w, ctrl.signal);
+        if (needsStand) { await standUp(this.w, ctrl.signal); this.cancellable = !!a.cancellable; }
         await a.run(this.w, ctrl.signal);
       } catch (e) {
+        aborted = true;
         if (!isAborted(e)) console.error(e);
       } finally {
         this.w.girl.setMoveDir(0, 0);
         this.w.flames.breath.strength = 0;
         this.w.remote.visible = false;
         if (!this.w.state.seated) await relax(this.w, null, 0.5).catch(() => {});
-        else { this.w.pose.arms.R.weight = 0; }
         this.w.cam.clearShot();
-        this.w.hud.hideCaption();
+        // a finished action's closing caption runs its own course
+        if (aborted) this.w.hud.hideCaption();
         this.busy = false; this.ctrl = null;
       }
     })();
