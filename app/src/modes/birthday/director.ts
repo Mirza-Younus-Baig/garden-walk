@@ -209,8 +209,11 @@ async function celebrate(w: World, s: AbortSignal) {
   await ease(w, s, 1.0, (e) => { P.bodyW = 1 - e; P.lean = 0.12 * (1 - e); P.inhale = 0; P.arms.L.weight = P.arms.R.weight = 0.95 * (1 - e); });
   await clapping(w, s, 7);
   w.cam.clearShot(1.6);
-  setTimeout(() => w.hud.banner('small'), 6000);
+  // the banner settles to a small title after a while (cancelled if the candles are relit first)
+  clearTimeout(bannerTimer);
+  bannerTimer = window.setTimeout(() => w.hud.banner('small'), 6000);
 }
+let bannerTimer = 0;
 
 async function clapping(w: World, s: AbortSignal, claps: number) {
   const P = w.pose, L = P.arms.L, R = P.arms.R;
@@ -234,6 +237,7 @@ async function clapping(w: World, s: AbortSignal, claps: number) {
 async function relight(w: World, s: AbortSignal) {
   const { cake } = LAYOUT, F = w.flames;
   await goTo(w, s, cake.x + 0.68, cake.z, -HALF);
+  clearTimeout(bannerTimer);
   w.hud.banner('hidden');
   w.audio.stopSong(1.2);
   w.fairyBoost(0);
@@ -312,7 +316,8 @@ async function music(w: World, s: AbortSignal) {
 async function openGift(w: World, s: AbortSignal) {
   const { gift } = LAYOUT, P = w.pose, G = w.gift;
   await goTo(w, s, gift.x, gift.z - 0.62, 0);
-  w.cam.setShot({ pos: V(gift.x + 1.1, 1.05, gift.z - 1.0), look: V(gift.x, 0.45, gift.z), fov: 42 }, 1.4);
+  // from the side, so both her face and the box are in view
+  w.cam.setShot({ pos: V(gift.x - 1.25, 1.15, gift.z - 0.05), look: V(gift.x, 0.5, gift.z - 0.3), fov: 44 }, 1.4);
   P.body = KNEEL;
   P.look.set(gift.x, 0.4, gift.z);
   await ease(w, s, 1.0, (e) => { P.bodyW = e; P.lookW = e; P.lean = 0.25 * e; });

@@ -162,6 +162,7 @@ export class Hud {
             <p>I hope this year brings you endless laughter, cosy days, brave little adventures and every small thing that makes you smile.</p>
             <p>Keep being exactly the wonderful person you are — the world is brighter with you in it.</p>
             <p class="sign">Have the sweetest day ✨</p>
+            <p class="deco" aria-hidden="true">🎈🎂🎁</p>
           </div>
           <div class="bd-card-cover"><div class="for">for</div><div class="nm"></div><div class="star">★</div></div>
           <button class="bd-card-close" aria-label="Close the card">×</button>
@@ -169,7 +170,9 @@ export class Hud {
       this.cardEl.querySelector('.hi')!.textContent = `Dear ${this.name},`;
       this.cardEl.querySelector('.nm')!.textContent = this.name;
       this.cardEl.classList.add('open');
-      requestAnimationFrame(() => requestAnimationFrame(() => this.cardEl.classList.add('unfold')));
+      // a forced reflow commits the closed state, so adding `unfold` animates from it
+      void this.cardEl.offsetWidth;
+      this.cardEl.classList.add('unfold');
       const close = () => {
         removeEventListener('keydown', onKey);
         this.cardEl.classList.remove('unfold');

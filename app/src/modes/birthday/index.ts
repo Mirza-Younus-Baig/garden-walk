@@ -150,7 +150,7 @@ async function build() {
   screenMat.emissiveMap = tvShow.texture;
   const tv = {
     on: false,
-    set(on: boolean) { this.on = on; screenMat.emissiveIntensity = on ? 1.6 : 0; tvLight.intensity = on ? 5 : 0; },
+    set(on: boolean) { this.on = on; screenMat.emissiveIntensity = on ? 0.75 : 0; tvLight.intensity = on ? 4 : 0; },
   };
   const lampState = {
     on: true,
