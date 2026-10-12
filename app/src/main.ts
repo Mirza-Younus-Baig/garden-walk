@@ -13,17 +13,29 @@ import { flowerUniforms } from './flowers/shader';
 import { Girl } from './girl/girl';
 import { FollowCamera } from './camera/follow';
 import { bindInput, groundPoint } from './input';
+import { isTouch, layoutStage, bindTouch } from './mobile';
 import { CONFIG } from './config';
 
 const overlay = document.getElementById('loading')!;
 const bar = document.getElementById('bar')!;
 // The key hint sits at the bottom until she first walks, then leaves for good.
 const hint = document.getElementById('hint');
-addEventListener('keydown', function dismiss(e) {
-  if (!hint || !/^(Key[WASD]|Arrow)/.test(e.code)) return;
+let hintGone = false;
+const dismissHint = () => {
+  if (!hint || hintGone) return;
+  hintGone = true;
   hint.classList.add('fade'); setTimeout(() => hint.remove(), 1000);
+};
+addEventListener('keydown', function dismiss(e) {
+  if (!/^(Key[WASD]|Arrow)/.test(e.code)) return;
+  dismissHint();
   removeEventListener('keydown', dismiss);
 });
+
+// Phones: a lighter tier. Their GPUs are a fraction of a desktop's and triangles are what
+// this scene is bound by, so detail levels step down sooner; the screen is small enough
+// that the nearer switch does not read.
+if (isTouch) for (const k in CONFIG.lod) CONFIG.lod[k as keyof typeof CONFIG.lod] = CONFIG.lod[k as keyof typeof CONFIG.lod].map((d) => d * 0.8);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 /**
@@ -32,15 +44,19 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
  * resolution for frame rate rather than letting the frame rate sag. Steps are coarse and
  * rate-limited, because resizing the drawing buffer is itself not free.
  */
-const basePixelRatio = Math.min(devicePixelRatio, 1.75);
-const PR_STEPS = [0.60, 0.72, 0.85, 1.0].map((f) => basePixelRatio * f);
+const basePixelRatio = Math.min(devicePixelRatio, isTouch ? 1.5 : 1.75);
+// Phones get a lower floor and start part-way down, climbing only if the frame allows.
+const PR_STEPS = (isTouch ? [0.5, 0.6, 0.72, 0.85, 1.0] : [0.60, 0.72, 0.85, 1.0]).map((f) => basePixelRatio * f);
 // `?pr=0.72` pins the ratio, so two measurements can be compared at the same resolution
 const lockPr = parseFloat(new URLSearchParams(location.search).get('pr') ?? '');
 if (!isNaN(lockPr)) PR_STEPS.length = 0, PR_STEPS.push(lockPr * basePixelRatio);
-let prIdx = PR_STEPS.length - 1;
+let prIdx = isTouch ? Math.min(2, PR_STEPS.length - 1) : PR_STEPS.length - 1;
+// The stage is the window, except on a phone held upright, where it is the window turned
+// sideways (see mobile.ts).
+let stage = layoutStage();
 const applySize = () => {
   renderer.setPixelRatio(PR_STEPS[prIdx]);
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(stage.w, stage.h);
 };
 applySize();
 renderer.shadowMap.enabled = !location.search.includes('noshadow'); renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -49,7 +65,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const follow = new FollowCamera(innerWidth / innerHeight);
+const follow = new FollowCamera(stage.w / stage.h);
 const camera = follow.camera;
 
 const manager = new THREE.LoadingManager();
@@ -65,6 +81,7 @@ const field = new FlowerField(gltfLoader);
 const girl = new Girl(gltfLoader);
 const birds = new Birds(gltfLoader);
 const input = bindInput(renderer.domElement, (dy) => follow.onWheel(dy));
+if (isTouch) bindTouch(renderer.domElement, input, (dy) => follow.onWheel(dy), dismissHint);
 
 let sky: Sky | null = null;
 let updateClockUI: (() => void) | null = null;
@@ -87,10 +104,15 @@ let updateCompass: ((camera: THREE.Camera) => void) | null = null;
   (window as any).__ready = true;
 })().catch((e) => { overlay.textContent = 'Failed to load: ' + e; console.error(e); });
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+const onResize = () => {
+  stage = layoutStage();
+  camera.aspect = stage.w / stage.h; camera.updateProjectionMatrix();
   applySize();
-});
+};
+addEventListener('resize', onResize);
+// iOS can report the old size in the resize that accompanies a rotation, so look again
+// once the rotation has settled.
+if (isTouch) addEventListener('orientationchange', () => setTimeout(onResize, 250));
 
 // `?stats` shows what the view-allocated field is actually drawing; off by default so
 // the garden stays uncluttered.
