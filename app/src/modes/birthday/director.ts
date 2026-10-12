@@ -59,6 +59,8 @@ interface Interactable extends FocusCandidate {
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const HALF = Math.PI / 2;
+/** hands together under her chin, as when making a wish (her chest frame) */
+const CLASP = V(0.02, 0.07, 0.25), CLASP_POLE = V(0.5, -0.45, -0.1), PRAYER = V(-0.15, 1, 0.35);
 
 // ---------------------------------------------------------------- shared moves
 /** walk to a spot along a path round the furniture, then turn to face `yaw` */
@@ -97,9 +99,10 @@ const ease = (w: World, s: AbortSignal, sec: number, fn: (e: number) => void, cu
   w.tasks.during(sec, (k) => fn(curve(k)), s);
 
 /** blend an arm goal in from wherever it is */
-function armTo(goal: ArmGoal, space: ArmGoal['space'], pos: THREE.Vector3, pole?: THREE.Vector3) {
+function armTo(goal: ArmGoal, space: ArmGoal['space'], pos: THREE.Vector3, pole?: THREE.Vector3, fingers?: THREE.Vector3) {
   goal.space = space; goal.pos.copy(pos);
   if (pole) goal.pole.copy(pole);
+  goal.fingers = fingers;
 }
 
 /** everything the pose layer does, eased back to nothing */
@@ -138,8 +141,8 @@ async function blowCandles(w: World, s: AbortSignal) {
 
   // a wish: hands together under her chin, eyes on the flames
   const L = P.arms.L, R = P.arms.R;
-  armTo(L, 'chest', V(0.025, 0.17, 0.2), V(0.45, -0.4, -0.05));
-  armTo(R, 'chest', V(0.025, 0.17, 0.2), V(0.45, -0.4, -0.05));
+  armTo(L, 'chest', CLASP, CLASP_POLE, PRAYER);
+  armTo(R, 'chest', CLASP, CLASP_POLE, PRAYER);
   w.hud.caption('Make a wish… ✨', 2.6);
   w.audio.chime(84, [0, 7, 12, 16, 19, 24]);
   await ease(w, s, 0.8, (e) => { L.weight = R.weight = e * 0.95; P.lookW = 0.8 + 0.2 * e; });
@@ -166,14 +169,14 @@ async function blowCandles(w: World, s: AbortSignal) {
   let tries = 0;
   for (;;) {
     if (!fromMic || tries === 0) w.audio.blow(1.25);
-    await ease(w, s, 0.3, (e) => { P.inhale = 1 - e; P.blow = e; P.lean = lerp(-0.05, 0.38, e); aim(); F.breath.strength = fromMic ? micStrength() : e; });
+    await ease(w, s, 0.3, (e) => { P.inhale = 1 - e; P.blow = e; P.lean = lerp(-0.05, 0.2, e); P.lookW = lerp(1, 0.55, e); aim(); F.breath.strength = fromMic ? micStrength() : e; });
     await w.tasks.during(1.0, () => { aim(); F.breath.strength = fromMic ? micStrength() : 1; }, s);
     if (!fromMic) {
       // a determined blow gets them all: any that survived go out in a quick ripple
       const left = F.flames.map((f, i) => (f.lit ? i : -1)).filter((i) => i >= 0);
       for (const i of left) { F.extinguish(i); w.audio.puff(); await w.tasks.wait(0.06, s); }
     }
-    await ease(w, s, 0.35, (e) => { F.breath.strength = (fromMic ? micStrength() : 1) * (1 - e); P.blow = 1 - e; P.lean = lerp(0.38, 0.12, e); });
+    await ease(w, s, 0.35, (e) => { F.breath.strength = (fromMic ? micStrength() : 1) * (1 - e); P.blow = 1 - e; P.lean = lerp(0.2, 0.08, e); P.lookW = lerp(0.55, 0.9, e); });
     F.breath.strength = 0;
     if (F.litCount === 0) break;
     // mic: a few candles may be left; she gets another go
@@ -195,7 +198,7 @@ async function celebrate(w: World, s: AbortSignal) {
   w.audio.pop();
   w.confetti.burst(V(table.x - 0.2, 1.0, table.z + 0.9), V(0.2, 1, -0.6), 260, 4.2, 0.5);
   setTimeout(() => { w.audio.pop(); w.confetti.burst(V(table.x - 0.1, 1.0, table.z - 0.9), V(0.2, 1, 0.6), 260, 4.2, 0.5); }, 220);
-  w.confetti.rain(table.x + 0.4, table.z, 1.6, ROOM.height - 0.1, 380);
+  w.confetti.rain(table.x + 0.4, table.z, 1.8, ROOM.height - 0.1, 700);
   w.sparkles.emit(V(LAYOUT.cake.x, 0.9, LAYOUT.cake.z), 30, 0.9, 0.3);
   w.hud.banner('big');
   w.audio.playSong();
@@ -265,8 +268,8 @@ async function sit(w: World, s: AbortSignal) {
   await goTo(w, s, sofa.x - 0.71, sofa.z, -HALF);
   P.body = sitPreset(sofa.seatY);
   const L = P.arms.L, R = P.arms.R;
-  armTo(L, 'hips', V(0.16, 0.14, 0.3), V(0.45, 0, -0.3));
-  armTo(R, 'hips', V(0.16, 0.14, 0.3), V(0.45, 0, -0.3));
+  armTo(L, 'hips', V(0.12, 0.08, 0.26), V(0.25, -0.3, -0.35), V(0, -0.3, 1));
+  armTo(R, 'hips', V(0.12, 0.08, 0.26), V(0.25, -0.3, -0.35), V(0, -0.3, 1));
   // sitting down: lean forward as the hips go back, then settle back into the cushions
   await ease(w, s, 1.25, (e) => { P.bodyW = e; P.lean = Math.sin(e * Math.PI) * 0.45; L.weight = R.weight = e * 0.85; });
   w.state.seated = true;
@@ -379,8 +382,8 @@ async function stargaze(w: World, s: AbortSignal) {
   await w.tasks.wait(0.6, s);
   w.hud.caption('A shooting star! Quick — make a wish 🌠', 3.4);
   w.audio.chime(86, [0, 4, 7, 12, 16, 19, 24]);
-  armTo(P.arms.L, 'chest', V(0.025, 0.17, 0.2), V(0.45, -0.4, -0.05));
-  armTo(P.arms.R, 'chest', V(0.025, 0.17, 0.2), V(0.45, -0.4, -0.05));
+  armTo(P.arms.L, 'chest', CLASP, CLASP_POLE, PRAYER);
+  armTo(P.arms.R, 'chest', CLASP, CLASP_POLE, PRAYER);
   await ease(w, s, 0.6, (e) => { P.arms.L.weight = P.arms.R.weight = 0.95 * e; });
   await w.tasks.wait(2.4, s);
   await ease(w, s, 0.6, (e) => { P.arms.L.weight = P.arms.R.weight = 0.95 * (1 - e); P.lookW = 1 - e; });

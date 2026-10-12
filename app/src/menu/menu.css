@@ -41,6 +41,8 @@ body.menu-open { overflow: auto; background: #1d1424; }
 @keyframes sway { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
 
 .menu footer { position: relative; font-size: 13px; color: #cdb8c6; opacity: 0.8; text-align: center; }
+.menu footer .touch { display: none; }
+@media (hover: none) and (pointer: coarse) { .menu footer .keys { display: none; } .menu footer .touch { display: inline; } }
 .menu kbd { display: inline-block; margin: 0 2px; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.3);
   background: rgba(255, 255, 255, 0.08); font: 600 11px/1.2 ui-monospace, Menlo, monospace; }
 

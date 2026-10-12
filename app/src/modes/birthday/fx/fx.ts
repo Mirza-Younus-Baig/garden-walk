@@ -30,9 +30,9 @@ export class Confetti {
   private p = new THREE.Vector3();
   private hidden = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  constructor(private surfaces: Surface[], n = 1400) {
+  constructor(private surfaces: Surface[], n = 2000) {
     this.N = n;
-    const geo = new THREE.PlaneGeometry(0.014, 0.022);
+    const geo = new THREE.PlaneGeometry(0.02, 0.03);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide });
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

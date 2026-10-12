@@ -76,8 +76,10 @@ export function solveTwoBone(ch: Chain, target: THREE.Vector3, pole: THREE.Vecto
     rotateBoneWorld(ch.root, _q1.setFromAxisAngle(_at, ang));
   }
   if (weight < 1) {
-    ch.root.quaternion.slerpQuaternions(_qa, ch.root.quaternion, weight);
-    ch.mid.quaternion.slerpQuaternions(_qb, ch.mid.quaternion, weight);
+    // blend from the animated pose toward the solution. (slerpQuaternions must not be given
+    // its own target as an argument: it copies the first argument in before reading the second)
+    _q0.copy(ch.root.quaternion); ch.root.quaternion.copy(_qa).slerp(_q0, weight);
+    _q1.copy(ch.mid.quaternion); ch.mid.quaternion.copy(_qb).slerp(_q1, weight);
   }
   ch.root.updateMatrixWorld(true);
 }
@@ -89,7 +91,7 @@ export function solveTwoBone(ch: Chain, target: THREE.Vector3, pole: THREE.Vecto
 export function aimBone(bone: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, weight = 1) {
   if (weight <= 1e-4) return;
   _q0.setFromUnitVectors(from, to);
-  if (weight < 1) _q0.slerpQuaternions(_q1.identity(), _q0, weight);
+  if (weight < 1) _q0.slerp(_q1.identity(), 1 - weight);
   rotateBoneWorld(bone, _q0);
   bone.updateMatrixWorld(true);
 }

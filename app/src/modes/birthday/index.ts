@@ -16,7 +16,7 @@ import { isTouch, layoutStage, bindTouch } from '../../mobile';
 import { ROOM, LAYOUT, TUNING, GIRL_RADIUS } from './config';
 import { NavWorld } from './core/nav';
 import { Tasks } from './core/tasks';
-import { PoseRig } from './girl/pose';
+import { PoseRig, KNEEL, sitPreset } from './girl/pose';
 import { RoomCamera } from './camera';
 import { createPost } from './post';
 import { Audio } from './audio/audio';
@@ -224,7 +224,7 @@ async function build() {
   hud.hideLoading();
   hud.caption(`Welcome, ${NAME}! Walk to the cake when you're ready ✨`, 5);
   (window as any).__bday = {
-    world, director, scene, renderer, camera, flames, audio, girl, pose, nav,
+    world, director, scene, renderer, camera, flames, audio, girl, pose, nav, presets: { KNEEL, sitPreset },
     act: (id: string, i = 0) => { const it = director!.items.find((x) => x.id === id)!; director!.perform(it, it.actions(world!)[i]); },
   };
   (window as any).__ready = true;
@@ -312,15 +312,13 @@ function makeLoop(o: {
   post.setSize(stage.w, stage.h);
   sparklesScale = () => o.sparkles.setScale(renderer.getDrawingBufferSize(new THREE.Vector2()).y / 900);
   sparklesScale();
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);          // pauses cleanly while the tab is hidden
   const camFwd = new THREE.Vector3(), camRight = new THREE.Vector3(), move = new THREE.Vector3();
   const wrist = new THREE.Vector3();
   let ema = 16.7, warm = 0, cool = 0;
-  return () => {
-    const raw = clock.getDelta();
-    // test hook: `__pause` freezes game time (screenshots take seconds in software GL)
-    const dt = (window as any).__pause ? 0 : Math.min(raw, 1 / 20);
-    const t = clock.elapsedTime;
+  /** one simulation step: input, actions, her, the room */
+  const step = (dt: number, t: number) => {
     const w = world!, d = director!;
     // ---- walking, camera-relative, unless an action has her
     const wantsMove = input.move.lengthSq() > 1e-4;
@@ -356,7 +354,18 @@ function makeLoop(o: {
     const line = st >= 0 ? audio.score.lyrics.find((l) => st >= l.t && st < l.end) : null;
     hud.lyric(line ? line.text : null, !!line?.name);
     if (!audio.songPlaying && w.state.celebrated) w.fairyBoost(0);
-    cam.update(dt, girl.pos, girl.yaw, girl.speed > 0.15);
+  };
+  return () => {
+    timer.update();
+    const raw = timer.getDelta();
+    // test hook: `__pause` freezes game time (screenshots take seconds in software GL)
+    const dt = (window as any).__pause ? 0 : Math.min(raw, 1 / 20);
+    const t = timer.getElapsed();
+    // test hook: `__steps` runs several simulation steps per drawn frame, so a scripted
+    // test gets through an action in reasonable time even when drawing is slow
+    const steps = Math.max(1, Math.min(20, (window as any).__steps ?? 1));
+    for (let i = 0; i < steps; i++) step(dt, t + i * dt);
+    cam.update(dt * steps, girl.pos, girl.yaw, girl.speed > 0.15);
     const dbg = (window as any).__debugCam;   // test hook: { pos: [x,y,z], look: [x,y,z], fov? }
     if (dbg) { camera.position.fromArray(dbg.pos); camera.lookAt(dbg.look[0], dbg.look[1], dbg.look[2]); if (dbg.fov) { camera.fov = dbg.fov; camera.updateProjectionMatrix(); } }
     post!.render(dt);

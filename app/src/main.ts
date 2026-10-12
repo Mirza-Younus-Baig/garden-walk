@@ -13,6 +13,10 @@ import { MODES, modeFromUrl, showMenu, addMenuButton } from './menu/menu';
 
 const mode = modeFromUrl(location.search);
 if (!mode) {
+  // the garden's loading screen and key hint live in index.html; the menu has no use for
+  // them (and the garden's CSS would show the loading screen despite its `hidden`)
+  document.getElementById('loading')?.remove();
+  document.getElementById('hint')?.remove();
   showMenu(MODES);
 } else {
   addMenuButton();

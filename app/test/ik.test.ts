@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { solveTwoBone } from '../src/modes/birthday/girl/ik';
+import { solveTwoBone, aimBone } from '../src/modes/birthday/girl/ik';
 
 /** a straight-down leg: hip at y=1, knee at 0.5, ankle at 0, under a rotated parent */
 function leg(parentRot = new THREE.Euler(0.3, 1.1, -0.2)) {
@@ -46,6 +46,23 @@ describe('solveTwoBone', () => {
     const end = chain.end.getWorldPosition(new THREE.Vector3());
     expect(end.distanceTo(new THREE.Vector3(0, 1, 0))).toBeGreaterThan(0.99);
     expect(end.y).toBeCloseTo(1, 2);
+  });
+  it('a partial weight lands part way, not back on the animated pose', () => {
+    const full = leg(new THREE.Euler()).chain, half = leg(new THREE.Euler()).chain;
+    const target = new THREE.Vector3(0.4, 0.5, 0.3), pole = new THREE.Vector3(0, 0.5, 1);
+    const start = half.end.getWorldPosition(new THREE.Vector3());
+    solveTwoBone(full, target, pole, 1);
+    solveTwoBone(half, target, pole, 0.5);
+    const endHalf = half.end.getWorldPosition(new THREE.Vector3());
+    // strictly between where it was and where the full solve puts it
+    expect(endHalf.distanceTo(start)).toBeGreaterThan(0.1);
+    expect(endHalf.distanceTo(target)).toBeGreaterThan(0.05);
+  });
+  it('aimBone with a partial weight turns part way', () => {
+    const b = new THREE.Object3D(); const parent = new THREE.Group(); parent.add(b); parent.updateMatrixWorld(true);
+    aimBone(b, new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), 0.5);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(b.quaternion);
+    expect(fwd.x).toBeCloseTo(Math.SQRT1_2, 5); expect(fwd.z).toBeCloseTo(Math.SQRT1_2, 5);
   });
   it('weight 0 leaves the pose alone', () => {
     const { chain } = leg();

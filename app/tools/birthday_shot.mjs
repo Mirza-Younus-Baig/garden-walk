@@ -1,9 +1,10 @@
 // Screenshots of the birthday room for review.
 //   node tools/birthday_shot.mjs <outdir> [script]
 // script is a |-separated list of steps run after load:
-//   wait:<s>  shot:<name>  act:<id>[:<i>]  cam:<px>,<py>,<pz>,<lx>,<ly>,<lz>  key:<code>:<seconds>  eval:<js>
-// Env: URL (default http://localhost:5188/?mode=birthday), W, H, MOBILE=1 for a phone.
+//   wait:<s>  shot:<name>  act:<id>[:<i>]  key:<code>:<seconds>  eval:<js>  evalf:<file.js>  until:<js>
+// Env: URL (default http://localhost:5188/?mode=birthday), W, H, MOBILE=1 for a phone, STEPS.
 import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
 const out = process.argv[2] ?? '.';
 const script = (process.argv[3] ?? 'wait:2|shot:start').split('|').filter(Boolean);
 const URL = process.env.URL ?? 'http://localhost:5188/?mode=birthday';
@@ -19,6 +20,8 @@ const t0 = Date.now();
 await p.goto(URL, { waitUntil: 'load' });
 await p.waitForFunction(() => window.__ready, null, { timeout: 600000, polling: 1000 });
 console.log('ready in', ((Date.now() - t0) / 1000).toFixed(1), 's');
+// STEPS=n: n simulation steps per drawn frame (software GL draws slowly)
+if (process.env.STEPS) await p.evaluate((n) => { window.__steps = n; }, +process.env.STEPS);
 for (const step of script) {
   const [kind, ...rest] = step.split(':');
   const arg = rest.join(':');
@@ -34,6 +37,7 @@ for (const step of script) {
   else if (kind === 'act') { const [id, i] = arg.split(':'); await p.evaluate(([id, i]) => window.__bday.act(id, +(i ?? 0)), [id, i ?? '0']); }
   else if (kind === 'key') { const [code, s] = arg.split(':'); await p.keyboard.down(code); await p.waitForTimeout(+s * 1000); await p.keyboard.up(code); }
   else if (kind === 'eval') console.log('eval:', JSON.stringify(await p.evaluate(arg)));
+  else if (kind === 'evalf') console.log('eval:', JSON.stringify(await p.evaluate(readFileSync(arg, 'utf8'))));
   else if (kind === 'until') await p.waitForFunction(arg, null, { timeout: 600000, polling: 500 });
 }
 console.log('errors', errors.length);

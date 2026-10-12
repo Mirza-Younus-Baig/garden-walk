@@ -75,7 +75,7 @@ export function showMenu(modes: ModeCard[]) {
       <p class="menu-sub">Where would you like to go?</p>
     </header>
     <div class="menu-cards"></div>
-    <footer>Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk · on a phone, your left thumb</footer>`;
+    <footer><span class="keys">Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk · drag to look around</span><span class="touch">Walk with your left thumb · tap things to use them</span></footer>`;
   root.querySelector('h1')!.textContent = name;
   const cards = root.querySelector('.menu-cards')!;
   for (const m of modes) {

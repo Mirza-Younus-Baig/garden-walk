@@ -22,6 +22,8 @@ export interface ArmGoal {
   pos: THREE.Vector3;
   /** where the elbow points, in her root frame */
   pole: THREE.Vector3;
+  /** optional: which way the fingers point, in her root frame (prayer hands point up) */
+  fingers?: THREE.Vector3;
 }
 
 export interface BodyPreset {
@@ -43,8 +45,8 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /** sitting on a seat whose top is `seatY` high, her root standing `back` metres in front of it */
 export function sitPreset(seatY: number): BodyPreset {
-  return { hips: V(0, seatY + 0.09, -0.36), hipsPitch: -0.22, spine: -0.06, chest: -0.04,
-    foot: V(0.11, 0.075, 0.08), knee: V(0.16, 0.5, 1.0), toePoint: 0 };
+  return { hips: V(0, seatY + 0.1, -0.5), hipsPitch: -0.06, spine: 0.04, chest: 0.02,
+    foot: V(0.1, 0.075, -0.06), knee: V(0.14, 0.5, 1.0), toePoint: 0 };
 }
 
 /** kneeling upright, as at a low table */
@@ -93,6 +95,8 @@ export class PoseRig {
   private armR!: Chain;
   private toeL!: THREE.Object3D;
   private toeR!: THREE.Object3D;
+  private fingerL!: THREE.Object3D;
+  private fingerR!: THREE.Object3D;
   /** +1 if the rig's _L bones are on her left (negative x in her frame) as expected */
   private lSide = 1;
   /** the head's forward, in the head bone's own frame */
@@ -113,6 +117,7 @@ export class PoseRig {
     this.armL = { root: b('Shoulder_L'), mid: b('Elbow_L'), end: b('Wrist_L') };
     this.armR = { root: b('Shoulder_R'), mid: b('Elbow_R'), end: b('Wrist_R') };
     this.toeL = b('Toes_L'); this.toeR = b('Toes_R');
+    this.fingerL = b('MiddleFinger1_L'); this.fingerR = b('MiddleFinger1_R');
   }
 
   /** her frame: forward, right */
@@ -213,6 +218,13 @@ export class PoseRig {
       this.chest.getWorldPosition(_d);
       this.toWorld(_p.set(this.sx(isL, goal.pole.x), goal.pole.y, goal.pole.z), _pole, _d);
       solveTwoBone(ch, _t, _pole, goal.weight);
+      if (goal.fingers) {
+        // turn the hand at the wrist so the fingers point the asked way
+        ch.end.getWorldPosition(_p); (isL ? this.fingerL : this.fingerR).getWorldPosition(_d);
+        _d.sub(_p).normalize();
+        this.toWorld(_t.set(this.sx(isL, goal.fingers.x), goal.fingers.y, goal.fingers.z), _t, _w.set(0, 0, 0)).normalize();
+        aimBone(ch.end, _d, _t, goal.weight * 0.85);
+      }
     }
 
     // ---- head: turn toward what she is looking at, neck taking a share, within limits;
@@ -235,7 +247,7 @@ export class PoseRig {
         fwdNow.copy(this.headFwd).applyQuaternion(_q).normalize();
         aimBone(this.head, fwdNow, _t, this.lookW * 0.6);
       }
-      if (this.blow > 1e-3) rotateBoneWorld(this.head, _q.setFromAxisAngle(_r, -this.blow * 0.12));
+      if (this.blow > 1e-3) rotateBoneWorld(this.head, _q.setFromAxisAngle(_r, -this.blow * 0.05));
       this.head.updateMatrixWorld(true);
     }
   }
