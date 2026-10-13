@@ -5,7 +5,7 @@ const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
 const logs = [];
 p.on('console', m => logs.push(m.type() + ': ' + m.text()));
 p.on('pageerror', e => logs.push('PAGEERROR: ' + e));
-await p.goto('http://localhost:5188/', { waitUntil: 'load' });
+await p.goto('http://localhost:5188/?mode=garden', { waitUntil: 'load' });
 await p.waitForFunction(() => window.__ready, null, { timeout: 180000 });
 await p.waitForTimeout(3000);
 fs.writeFileSync(out, logs.join('\n\n'));

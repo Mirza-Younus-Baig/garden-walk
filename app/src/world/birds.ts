@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { heightAt } from './terrain';
+import { flag, param } from '../params';
 
 /**
  * Birds in the sky. One instanced mesh of the Blender-built bird (models/bird.glb), flapped in
@@ -77,11 +78,11 @@ export class Birds {
   private nextSpawn: number;
   private rand: () => number;
   private seeded: boolean;
-  private enabled = !location.search.includes('nobirds');
+  private enabled = !flag('nobirds');
 
   constructor(private loader: GLTFLoader) {
     this.group.name = 'birds';
-    const seed = parseInt(new URLSearchParams(location.search).get('birdseed') ?? '', 10);
+    const seed = parseInt(param('birdseed') ?? '', 10);
     this.seeded = !isNaN(seed);
     this.rand = this.seeded ? rng(seed) : Math.random;
     // the first flock is already in the air on a seeded run, so a screenshot can find it

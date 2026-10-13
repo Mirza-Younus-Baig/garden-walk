@@ -7,7 +7,7 @@ const p = await b.newPage({ viewport: { width: 1024, height: 640 } });
 const errors = [];
 p.on('pageerror', e => errors.push(String(e)));
 p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-await p.goto('http://localhost:5188/', { waitUntil: 'load' });
+await p.goto('http://localhost:5188/?mode=garden', { waitUntil: 'load' });
 await p.waitForFunction(() => window.__ready, null, { timeout: 180000 });
 await p.evaluate(() => { window.__sky.dayNight.clock.setHour(23.4); window.__ft = null; });
 const t0 = Date.now();

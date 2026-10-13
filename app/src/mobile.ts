@@ -1,4 +1,5 @@
 import type { InputState } from './input';
+import { flag } from './params';
 
 /**
  * Phones and tablets. Everything here is gated on `isTouch`, so a desktop browser takes
@@ -6,8 +7,7 @@ import type { InputState } from './input';
  *
  * `?touch` forces the touch layout on a desktop browser, for testing.
  */
-const qs = location.search;
-export const isTouch = qs.includes('touch') ||
+export const isTouch = flag('touch') ||
   (matchMedia('(hover: none) and (pointer: coarse)').matches && navigator.maxTouchPoints > 0);
 
 /**
@@ -36,7 +36,7 @@ export function layoutStage(): { w: number; h: number } {
 }
 
 /** screen (client) coordinates to stage coordinates; the inverse of the CSS rotation */
-function toStage(x: number, y: number): [number, number] {
+export function toStage(x: number, y: number): [number, number] {
   return rotated ? [y, innerWidth - x] : [x, y];
 }
 
@@ -79,6 +79,10 @@ export function bindTouch(el: HTMLElement, st: InputState, onZoom: (dy: number) 
 
   let joyId = -1, joyT = 0, cx = 0, cy = 0, moved = false, locked = false;
   const pinch = new Map<number, [number, number]>();
+  let pinchT = 0;                // when the first finger of a possible pinch came down
+  // ms: a second finger within this of the first makes a pinch. Timed by the events'
+  // own time stamps, when the fingers landed, so a busy frame cannot stretch the gap.
+  const PAIR = 250;
   let pinchDist = 0;
 
   const release = () => {
@@ -116,12 +120,16 @@ export function bindTouch(el: HTMLElement, st: InputState, onZoom: (dy: number) 
     const { w, h } = stage;
     // A second finger landing just after the first, before the stick has gone anywhere, is
     // the start of a pinch rather than a walk: hand the first finger over to the pinch.
-    if (joyId >= 0 && performance.now() - joyT < 250 && st.move.lengthSq() === 0) {
-      pinch.set(joyId, [cx, cy]);
+    if (joyId >= 0 && e.timeStamp - joyT < PAIR && st.move.lengthSq() === 0) {
+      pinch.set(joyId, [cx, cy]); pinchT = joyT;
       release();
     }
-    if (joyId < 0 && pinch.size === 0 && x < w * 0.5) {
-      joyId = e.pointerId; joyT = performance.now();
+    // The same rule the other way round: a finger on the right that has only just come
+    // down is the start of a pinch, so the next one joins it wherever it lands; one that
+    // has been down a while is looking round, and the left thumb can walk meanwhile.
+    const pinching = pinch.size >= 2 || (pinch.size === 1 && e.timeStamp - pinchT < PAIR);
+    if (joyId < 0 && !pinching && x < w * 0.5) {
+      joyId = e.pointerId; joyT = e.timeStamp;
       // the base follows the thumb, but stays whole on screen
       const r = base.offsetWidth / 2 || 64;
       cx = Math.min(Math.max(x, r + 8), w - r - 8);
@@ -132,6 +140,7 @@ export function bindTouch(el: HTMLElement, st: InputState, onZoom: (dy: number) 
       return;
     }
     if (e.pointerId === joyId) return;
+    if (pinch.size === 0) pinchT = e.timeStamp;
     pinch.set(e.pointerId, [x, y]);
     if (pinch.size === 2) pinchDist = spread();
   });

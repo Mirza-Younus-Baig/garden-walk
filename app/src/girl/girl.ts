@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { CONFIG } from '../config';
-import { heightAt } from '../world/ground';
 import { SpringRig, type ChainDef, type RingDef, type SpringParams } from './springs';
 import { fitSkirt, type SkirtFit } from './skirt';
+import { rotateWorld } from './bones';
+import { flag } from '../params';
 
 /** where she touches the flowers: fed to the field every frame, in world space */
 export interface Contacts {
@@ -57,22 +57,32 @@ const SKIRT_RING: RingDef = {
   stretch: 1.12, compress: 0.5,
 };
 
+/** How she moves. The garden passes its CONFIG, which carries all of these. */
+export interface GirlTuning {
+  walkSpeed: number; runSpeed: number; accel: number; runAccel: number; decel: number;
+  turnSpeed: number; turnMax: number; turnSlow: number; arriveRadius: number;
+}
+
+export interface GirlOptions {
+  tuning: GirlTuning;
+  /** height of the floor under a point, in metres */
+  groundHeight: (x: number, z: number) => number;
+  /** Pushes her position out of anything solid, in place. Runs after each step. */
+  collide?: (pos: THREE.Vector3) => void;
+  /**
+   * Runs once the clips and the lean are on the bones and before the hair and skirt
+   * springs read them, so a pose layered on here is one the cloth follows.
+   */
+  postAnimate?: (dt: number) => void;
+  /** the model to load; the same rig and clips at another texture size (default girl.glb) */
+  url?: string;
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 const _q = new THREE.Quaternion();
-const _pq = new THREE.Quaternion();
-const _pInv = new THREE.Quaternion();
 const _v = new THREE.Vector3();
-const _s = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _side = new THREE.Vector3();
-const _m = new THREE.Matrix4();
-
-/** turn a bone by a world-space rotation, leaving its children to follow */
-function rotateWorld(bone: THREE.Object3D, q: THREE.Quaternion) {
-  _m.copy(bone.parent!.matrixWorld).decompose(_v, _pq, _s);
-  _pInv.copy(_pq).invert();
-  bone.quaternion.premultiply(_pq).premultiply(q).premultiply(_pInv);
-}
 
 export class Girl {
   root = new THREE.Group();
@@ -111,10 +121,13 @@ export class Girl {
   private prevSpeed = 0;
   private wantYaw = Math.PI;
 
-  constructor(private loader: GLTFLoader) { this.root.name = 'girl'; }
+  constructor(private loader: GLTFLoader, private opts: GirlOptions) { this.root.name = 'girl'; }
+
+  /** the loaded rig, for pose layers that work on her bones */
+  get model3d() { return this.model; }
 
   async load() {
-    const gltf = await this.loader.loadAsync('/models/girl.glb');
+    const gltf = await this.loader.loadAsync(this.opts.url ?? '/models/girl.glb');
     this.model = gltf.scene;
     this.model.traverse((o: any) => {
       if (o.isMesh) {
@@ -143,10 +156,10 @@ export class Girl {
       spine: bone('Spine1_M'), chest: bone('Chest_M'), head: bone('Head_M'),
       ankleL: bone('Ankle_L'), ankleR: bone('Ankle_R'), kneeL: bone('Knee_L'), kneeR: bone('Knee_R'), hips: bone('Root_M'),
     };
-    if (!location.search.includes('nosprings')) {
-      this.springs = new SpringRig(this.root, this.model, CHAINS, location.search.includes('noskirtring') ? [] : [SKIRT_RING]);
+    if (!flag('nosprings')) {
+      this.springs = new SpringRig(this.root, this.model, CHAINS, flag('noskirtring') ? [] : [SKIRT_RING]);
     }
-    if (!location.search.includes('noskirtfix')) this.skirtFit = fitSkirt(this.model);
+    if (!flag('noskirtfix')) this.skirtFit = fitSkirt(this.model);
     this.root.updateMatrixWorld(true);
     this.readContacts();
   }
@@ -161,6 +174,7 @@ export class Girl {
   }
 
   update(dt: number) {
+    const CONFIG = this.opts.tuning;
     // ---- locomotion
     let desired = 0; const dir = _v.set(0, 0, 0);
     if (this.moveDir.lengthSq() > 1e-6) {
@@ -204,8 +218,18 @@ export class Girl {
     this.prevSpeed = this.speed;
     const fwd = _fwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     this.vel.copy(fwd).multiplyScalar(this.speed);
+    const px = this.pos.x, pz = this.pos.z;
     this.pos.addScaledVector(this.vel, dt);
-    this.pos.y = heightAt(this.pos.x, this.pos.z);
+    if (this.opts.collide) {
+      this.opts.collide(this.pos);
+      // Held back by something: she goes only as fast as she actually moved, so pressing
+      // into a wall slows the walk to a stand rather than treading on the spot.
+      if (dt > 0) {
+        const moved = Math.hypot(this.pos.x - px, this.pos.z - pz) / dt;
+        if (moved < this.speed - 1e-3) { this.speed = this.prevSpeed = moved; this.vel.copy(fwd).multiplyScalar(moved); }
+      }
+    }
+    this.pos.y = this.opts.groundHeight(this.pos.x, this.pos.z);
     this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
 
     // ---- animation blend
@@ -245,6 +269,7 @@ export class Girl {
       rotateWorld(this.bones.head, _q);
       this.bones.head.updateMatrixWorld(true);
     }
+    this.opts.postAnimate?.(dt);
     this.springs?.update(dt);
     // after the springs, which place the panels it corrects
     this.skirtFit?.update();

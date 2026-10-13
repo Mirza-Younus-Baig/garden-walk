@@ -6,7 +6,7 @@ const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--u
 const p = await b.newPage({ viewport: { width: +(process.env.VW||1280), height: +(process.env.VH||800) } });
 p.on('console', m => { if (m.text().startsWith('field:')) console.log('[' + m.text() + ']'); else if (m.type() === 'error' || m.type() === 'warning') console.log('[browser:' + m.type() + ']', m.text().slice(0, 500)); });
 p.on('pageerror', e => console.log('[pageerror]', String(e).slice(0, 500)));
-await p.goto('http://localhost:5188/?' + (process.env.QS ?? ''), { waitUntil: 'load' });
+await p.goto('http://localhost:5188/?mode=garden&' + (process.env.QS ?? ''), { waitUntil: 'load' });
 await p.waitForFunction(() => window.__ready, null, { timeout: 180000 });
 await p.waitForTimeout(1500);
 for (const s of steps) {

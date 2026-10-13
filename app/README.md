@@ -5,6 +5,14 @@ grass. Flowers bend out of her way, birds cross the sky, and a full 24-hour day 
 three minutes. It is built with [three.js](https://threejs.org), TypeScript and Vite. There is
 no game engine and no backend: the app is a static page.
 
+The app opens on a menu with two modes, each loaded as its own chunk:
+
+- **Flower Garden** (`?mode=garden`): the meadow described below.
+- **Birthday Room** (`?mode=birthday`): a cosy evening party in a living room, with a cake to
+  blow out, a song, presents and more. See [`src/modes/birthday/README.md`](src/modes/birthday/README.md).
+
+`npm test` runs the unit tests, and `npm run typecheck` runs the type checker.
+
 ## What's in it
 
 | Feature | Description | Main code |

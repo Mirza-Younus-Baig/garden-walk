@@ -12,3 +12,10 @@
 Not used in the build: the CC0 sunflower scan by ffishAsia-and-floraZia was dropped, so no
 attribution is owed for it. Its leaves are enormous next to its own head, and at any height
 that made the plant read as a sunflower those leaves swamped the meadow.
+
+## Birthday room
+
+- **Fredoka** (Milena Brandão) and **Dancing Script** (Pablo Impallari) — SIL Open Font License 1.1, via Fontsource. Fredoka's capitals are also converted to a three.js typeface (`app/tools/build_font.mjs`) for the gold foil letter balloons.
+- The tulips and daisies in the vase are the garden's own scans (credited above), cut down by `app/tools/build_bouquet.mjs`.
+- Everything else in the room is made in code: the furniture, textures (wood, plaster, velvet, knit, rug), the paintings, the cake, the lilies, the night outside the window, and all of the sound.
+- "Happy Birthday to You": the melody is public domain. The arrangement and its synthesis are this project's own, so no recording is used.
