@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { ROOM, LAYOUT } from '../config';
 import { Batcher, std, phys } from './build';
@@ -18,22 +19,39 @@ const PASTELS = ['#f6a6bf', '#c7b3f2', '#a8dcc9', '#ffd59e', '#9fcdf2', '#ffffff
 
 // ---------------------------------------------------------------- balloons
 interface Balloon {
-  mesh: THREE.Mesh;
   anchor: THREE.Vector3;       // where the string is tied
   rest: THREE.Vector3;         // where it floats when still
   pos: THREE.Vector3;
   vel: THREE.Vector3;
-  string: THREE.Line;
+  scale: number;
   phase: number;
+  foil: boolean;
+  color: THREE.Color;
+  slot: number;                // instance index within its kind
 }
 
+const SEGS = 15;               // string segments per balloon
+
+/**
+ * Every balloon in the room, drawn as two instanced meshes (latex and foil) and one line
+ * buffer for all the strings: three draws however many balloons there are. Each balloon is
+ * a damped spring round its rest point and can be bopped.
+ */
 export class Balloons {
   group = new THREE.Group();
   private items: Balloon[] = [];
+  private latex: THREE.InstancedMesh | null = null;
+  private foil: THREE.InstancedMesh | null = null;
+  private strings: THREE.LineSegments | null = null;
   private _v = new THREE.Vector3();
+  private _m = new THREE.Matrix4();
+  private _q = new THREE.Quaternion();
+  private _e = new THREE.Euler();
+  private _s = new THREE.Vector3();
 
   constructor() { this.group.name = 'balloons'; }
 
+  /** one balloon: an egg-shaped body with its knot, as a single geometry */
   static geometry = (() => {
     const g = new THREE.SphereGeometry(0.15, 40, 28);
     const p = g.getAttribute('position') as THREE.BufferAttribute;
@@ -44,34 +62,18 @@ export class Balloons {
       p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); p.setY(i, p.getY(i) * 1.12);
     }
     g.computeVertexNormals();
-    return g;
+    const knot = new THREE.ConeGeometry(0.014, 0.022, 12);
+    knot.rotateX(Math.PI); knot.translate(0, -0.172, 0);
+    const merged = mergeGeometries([g.toNonIndexed(), knot.toNonIndexed()], false)!;
+    merged.computeBoundingSphere();
+    return merged;
   })();
-
-  static knot = (() => { const g = new THREE.ConeGeometry(0.014, 0.022, 12); g.rotateX(Math.PI); return g; })();
-
-  static material(color: string, foil = false) {
-    return foil
-      ? phys(color, 0.18, { metalness: 1, clearcoat: 1, clearcoatRoughness: 0.08 })
-      : phys(color, 0.32, { clearcoat: 0.9, clearcoatRoughness: 0.18, sheen: 0.5, sheenColor: new THREE.Color('#ffffff'), sheenRoughness: 0.3 });
-  }
 
   /** a balloon tied at `anchor`, floating at `rest` */
   add(anchor: THREE.Vector3, rest: THREE.Vector3, color: string, scale = 1, foil = false) {
-    const mat = Balloons.material(color, foil);
-    const mesh = new THREE.Mesh(Balloons.geometry, mat);
-    const knot = new THREE.Mesh(Balloons.knot, mat);
-    knot.position.y = -0.172;
-    mesh.add(knot);
-    mesh.scale.setScalar(scale);
-    mesh.castShadow = true;
-    mesh.position.copy(rest);
-    const pts = new Float32Array(16 * 3);
-    const sg = new THREE.BufferGeometry();
-    sg.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-    const string = new THREE.Line(sg, new THREE.LineBasicMaterial({ color: '#f4f0ea', transparent: true, opacity: 0.85 }));
-    string.frustumCulled = false;
-    this.group.add(mesh, string);
-    this.items.push({ mesh, anchor: anchor.clone(), rest: rest.clone(), pos: rest.clone(), vel: new THREE.Vector3(), string, phase: Math.random() * 10 });
+    if (this.latex) throw new Error('balloons: add() after finish()');
+    this.items.push({ anchor: anchor.clone(), rest: rest.clone(), pos: rest.clone(), vel: new THREE.Vector3(), scale,
+      phase: Math.random() * 10, foil, color: new THREE.Color(color), slot: 0 });
   }
 
   /** a bunch of `n` round a tie point */
@@ -81,6 +83,32 @@ export class Balloons {
       const rest = new THREE.Vector3(anchor.x + Math.cos(a) * r, anchor.y + height + ((i * 13) % 7) * 0.06, anchor.z + Math.sin(a) * r);
       this.add(anchor, rest, colors[(i + seed) % colors.length], 0.9 + ((i * 7) % 5) * 0.05, i % 5 === 4);
     }
+  }
+
+  /** build the instanced meshes once every balloon has been added */
+  finish() {
+    const make = (foil: boolean) => {
+      const list = this.items.filter((b) => b.foil === foil);
+      if (!list.length) return null;
+      const mat = foil
+        ? phys('#ffffff', 0.18, { metalness: 1, clearcoat: 1, clearcoatRoughness: 0.08 })
+        : phys('#ffffff', 0.32, { clearcoat: 0.9, clearcoatRoughness: 0.18, sheen: 0.5, sheenColor: new THREE.Color('#ffffff'), sheenRoughness: 0.3 });
+      const im = new THREE.InstancedMesh(Balloons.geometry, mat, list.length);
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      list.forEach((b, i) => { b.slot = i; im.setColorAt(i, b.color); });
+      im.castShadow = true;
+      im.frustumCulled = false;          // they float all over the room
+      this.group.add(im);
+      return im;
+    };
+    this.latex = make(false);
+    this.foil = make(true);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.items.length * SEGS * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    this.strings = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#f4f0ea', transparent: true, opacity: 0.85 }));
+    this.strings.frustumCulled = false;
+    this.group.add(this.strings);
+    this.update(0, 0);
   }
 
   /** a soft push to every balloon near p (she bopped them) */
@@ -95,6 +123,9 @@ export class Balloons {
   }
 
   update(dt: number, t: number) {
+    if (!this.strings) return;
+    const arr = this.strings.geometry.getAttribute('position') as THREE.BufferAttribute;
+    let v = 0;
     for (const b of this.items) {
       // a damped spring back to rest, plus a little air drift
       const k = 6, c = 1.6;
@@ -109,20 +140,24 @@ export class Balloons {
       const d = this._v.subVectors(b.pos, b.anchor);
       if (d.length() > maxLen) { d.setLength(maxLen); b.pos.copy(b.anchor).add(d); }
       b.pos.y = Math.min(b.pos.y, ROOM.height - 0.2);
-      b.mesh.position.copy(b.pos);
       // tilt with the swing, as the string pulls the knot
-      b.mesh.rotation.z = THREE.MathUtils.clamp(-(b.pos.x - b.anchor.x) * 0.25, -0.4, 0.4);
-      b.mesh.rotation.x = THREE.MathUtils.clamp((b.pos.z - b.anchor.z) * 0.25, -0.4, 0.4);
-      // string: a gentle curve from the tie up to the knot
-      const arr = (b.string.geometry.getAttribute('position') as THREE.BufferAttribute);
-      const knotY = b.pos.y - 0.18 * b.mesh.scale.y;
-      for (let i = 0; i < 16; i++) {
-        const s = i / 15;
-        const sway = Math.sin(s * Math.PI) * 0.04 * Math.sin(t * 1.3 + b.phase);
-        arr.setXYZ(i, b.anchor.x + (b.pos.x - b.anchor.x) * s + sway, b.anchor.y + (knotY - b.anchor.y) * s, b.anchor.z + (b.pos.z - b.anchor.z) * s + sway * 0.5);
+      this._e.set(THREE.MathUtils.clamp((b.pos.z - b.anchor.z) * 0.25, -0.4, 0.4), 0, THREE.MathUtils.clamp(-(b.pos.x - b.anchor.x) * 0.25, -0.4, 0.4));
+      this._m.compose(b.pos, this._q.setFromEuler(this._e), this._s.setScalar(b.scale));
+      (b.foil ? this.foil : this.latex)!.setMatrixAt(b.slot, this._m);
+      // string: a gentle curve from the tie up to the knot, as line segments
+      const knotY = b.pos.y - 0.18 * b.scale;
+      const sw = 0.04 * Math.sin(t * 1.3 + b.phase);
+      let px = 0, py = 0, pz = 0;
+      for (let i = 0; i <= SEGS; i++) {
+        const s = i / SEGS, sway = Math.sin(s * Math.PI) * sw;
+        const x = b.anchor.x + (b.pos.x - b.anchor.x) * s + sway, y = b.anchor.y + (knotY - b.anchor.y) * s, z = b.anchor.z + (b.pos.z - b.anchor.z) * s + sway * 0.5;
+        if (i > 0) { arr.setXYZ(v++, px, py, pz); arr.setXYZ(v++, x, y, z); }
+        px = x; py = y; pz = z;
       }
-      arr.needsUpdate = true;
     }
+    arr.needsUpdate = true;
+    if (this.latex) this.latex.instanceMatrix.needsUpdate = true;
+    if (this.foil) this.foil.instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -179,22 +214,28 @@ export function foilLetters(text: string, centre: THREE.Vector3, size = 0.34): T
 }
 
 // ---------------------------------------------------------------- bunting and garlands
-function flagTexture(letter: string, color: string) {
-  const c = canvas(128, 160), ctx = c.getContext('2d')!;
-  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(128, 0); ctx.lineTo(64, 160); ctx.closePath(); ctx.fill();
-  // tiny white dots
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  for (let y = 12; y < 100; y += 16) for (let x = 10 + (y % 32 ? 8 : 0); x < 128; x += 16) { if (Math.abs(x - 64) < (1 - y / 160) * 64 - 6) { ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill(); } }
-  if (letter.trim()) {
-    ctx.fillStyle = '#ffffff'; ctx.font = '600 66px Fredoka, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 4;
-    ctx.fillText(letter, 64, 52);
+/** all the flags' faces side by side in one texture: a column per flag */
+function flagAtlas(text: string, colors: string[]) {
+  const W = 128, H = 160, n = text.length;
+  const c = canvas(W * n, H), ctx = c.getContext('2d')!;
+  for (let i = 0; i < n; i++) {
+    ctx.save(); ctx.translate(i * W, 0);
+    ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(0, 0, W, H);   // the geometry is the triangle
+    // tiny white dots
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    for (let y = 12; y < 100; y += 16) for (let x = 10 + (y % 32 ? 8 : 0); x < W; x += 16) { if (Math.abs(x - 64) < (1 - y / H) * 64 - 6) { ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill(); } }
+    if (text[i].trim()) {
+      ctx.fillStyle = '#ffffff'; ctx.font = '600 66px Fredoka, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 4;
+      ctx.fillText(text[i], 64, 52);
+    }
+    ctx.restore();
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 }
 
-/** flags on a sagging cord from a to b; `along` is the wall's direction */
+/** flags on a sagging cord from a to b, as one mesh: triangles cut from one texture */
 export function bunting(a: THREE.Vector3, b: THREE.Vector3, sag: number, text: string, colors: string[]) {
   const g = new THREE.Group();
   g.name = 'bunting';
@@ -206,18 +247,26 @@ export function bunting(a: THREE.Vector3, b: THREE.Vector3, sag: number, text: s
   const dir = new THREE.Vector3().subVectors(b, a).setY(0).normalize();
   const yaw = Math.atan2(dir.x, dir.z) - Math.PI / 2;
   const fw = Math.min(0.3, a.distanceTo(b) / (n + 1) * 0.86), fh = fw * 1.25;
-  const geo = new THREE.PlaneGeometry(fw, fh);
-  geo.translate(0, -fh / 2, 0);
+  const mat = phys('#ffffff', 0.8, { map: flagAtlas(text, colors), side: THREE.DoubleSide, sheen: 0.3, sheenColor: new THREE.Color('#ffffff') });
+  const parts: THREE.BufferGeometry[] = [];
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
   for (let i = 0; i < n; i++) {
     const s = (i + 1) / (n + 1);
-    const m = new THREE.Mesh(geo, phys('#ffffff', 0.8, { map: flagTexture(text[i], colors[i % colors.length]), side: THREE.DoubleSide, sheen: 0.3, sheenColor: new THREE.Color('#ffffff') }));
-    m.position.copy(curve(s));
-    m.rotation.set(0, yaw, 0);
+    // a pennant: point down, its uv the matching column of the atlas
+    const tri = new THREE.BufferGeometry();
+    // counter-clockwise seen from +z, so the front face agrees with the normal (double-sided
+    // shading flips the normal on back faces)
+    tri.setAttribute('position', new THREE.Float32BufferAttribute([-fw / 2, 0, 0, 0, -fh, 0, fw / 2, 0, 0], 3));
+    tri.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    tri.setAttribute('uv', new THREE.Float32BufferAttribute([i / n, 1, (i + 0.5) / n, 0, (i + 1) / n, 1], 2));
     // flags hang plumb but twist a touch on the cord
-    m.rotateY(Math.sin(i * 2.1) * 0.12);
-    m.castShadow = true;
-    g.add(m);
+    q.setFromEuler(new THREE.Euler(0, yaw + Math.sin(i * 2.1) * 0.12, 0));
+    tri.applyMatrix4(m.compose(curve(s), q, new THREE.Vector3(1, 1, 1)));
+    parts.push(tri);
   }
+  const flags = new THREE.Mesh(mergeGeometries(parts, false)!, mat);
+  flags.castShadow = true;
+  g.add(flags);
   return g;
 }
 
@@ -325,15 +374,24 @@ export function photoString(a: THREE.Vector3, b: THREE.Vector3, sag: number, nor
   g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 30 }, (_, i) => curve(i / 29))), new THREE.LineBasicMaterial({ color: '#c8b8a0' })));
   const frameMat = std('#fbfaf6', 0.7);
   const pegMat = std('#c9a073', 0.7);
+  // the six doodles in one 3 x 2 texture, so the photos share a material
+  const atlas = canvas(660, 440), actx = atlas.getContext('2d')!;
+  for (let i = 0; i < 6; i++) actx.drawImage(PAINTINGS.doodle(i), (i % 3) * 220, Math.floor(i / 3) * 220);
+  const atlasTex = new THREE.CanvasTexture(atlas); atlasTex.colorSpace = THREE.SRGBColorSpace;
+  const picMat = std('#ffffff', 0.6, 0, { map: atlasTex });
   for (let i = 0; i < 6; i++) {
     const s = (i + 0.7) / 6.4;
     const p = curve(s);
-    const c = PAINTINGS.doodle(i);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    // this photo's cell of the shared atlas
+    const picGeo = new THREE.PlaneGeometry(0.1, 0.1);
+    const uv = picGeo.getAttribute('uv') as THREE.BufferAttribute;
+    // (canvas row 0 is the top half of the texture: v 0.5..1)
+    const col = i % 3, row = Math.floor(i / 3);
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, (col + uv.getX(k)) / 3, (uv.getY(k) + 1 - row) / 2);
     const card = new THREE.Group();
     const back = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.145, 0.002), frameMat);
     back.position.y = -0.0725;
-    const pic = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.1), std('#ffffff', 0.6, 0, { map: tex }));
+    const pic = new THREE.Mesh(picGeo, picMat);
     pic.position.set(0, -0.06, 0.0012);
     const peg = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.035, 0.012), pegMat);
     peg.position.set(0, -0.008, 0.004);
@@ -559,7 +617,8 @@ export interface Decor {
   colliders: Collider[];
 }
 
-export function buildDecor(name: string, shadows: boolean): Decor {
+/** `hq`: desktop quality (a sharper key-light shadow) */
+export function buildDecor(name: string, hq: boolean): Decor {
   const group = new THREE.Group();
   group.name = 'decor';
   const { minX, maxX, minZ, maxZ, height: H } = ROOM;
@@ -592,20 +651,20 @@ export function buildDecor(name: string, shadows: boolean): Decor {
     if (Math.abs(p.x - LAYOUT.table.x) < 0.5 && Math.abs(p.z - LAYOUT.table.z) < 0.5) p.x += 0.8;
     balloons.add(new THREE.Vector3(p.x, p.y - 1.1, p.z), p, PASTELS[i % PASTELS.length], 0.85, i === 3);
   }
+  balloons.finish();
   group.add(balloons.group);
 
   // paper lanterns: the big one over the table is the room's key light
   const lanterns: Lantern[] = [];
   const key = new THREE.SpotLight('#ffcf94', 14, 7, 1.05, 0.9, 2);
   key.position.set(0, 0, 0);
-  if (shadows) {
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.radius = 6;
-    key.shadow.bias = -0.0003;
-    key.shadow.normalBias = 0.02;
-    key.shadow.camera.near = 0.2; key.shadow.camera.far = 4;
-  }
+  // the one shadow every device gets: it grounds her, the table and the cake
+  key.castShadow = true;
+  key.shadow.mapSize.setScalar(hq ? 2048 : 1024);
+  key.shadow.radius = hq ? 6 : 4;
+  key.shadow.bias = -0.0003;
+  key.shadow.normalBias = 0.02;
+  key.shadow.camera.near = 0.2; key.shadow.camera.far = 4;
   const big = paperLantern(new THREE.Vector3(LAYOUT.table.x + 0.2, 2.15, LAYOUT.table.z), 0.24, '#fbf5ea', '#ffd9a0', key);
   key.target.position.set(0.25, -2.15, 0.2);
   big.group.add(key.target);

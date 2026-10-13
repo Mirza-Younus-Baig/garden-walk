@@ -72,6 +72,8 @@ export interface GirlOptions {
    * springs read them, so a pose layered on here is one the cloth follows.
    */
   postAnimate?: (dt: number) => void;
+  /** the model to load; the same rig and clips at another texture size (default girl.glb) */
+  url?: string;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -134,7 +136,7 @@ export class Girl {
   get model3d() { return this.model; }
 
   async load() {
-    const gltf = await this.loader.loadAsync('/models/girl.glb');
+    const gltf = await this.loader.loadAsync(this.opts.url ?? '/models/girl.glb');
     this.model = gltf.scene;
     this.model.traverse((o: any) => {
       if (o.isMesh) {

@@ -27,6 +27,7 @@ import { buildFurniture } from './room/furniture';
 import { hangPaintings, PAINTINGS } from './room/paintings';
 import { buildDecor, partyHat } from './room/decor';
 import { setAnisotropy, sparkleSprite } from './room/textures';
+import { mergeStatic } from './room/build';
 import { TvShow } from './room/tv';
 import { buildCake } from './cake/cake';
 import { Flames } from './cake/flames';
@@ -77,7 +78,8 @@ gltfLoader.setKTX2Loader(new KTX2Loader(manager).setTranscoderPath('/basis/').de
 
 const audio = new Audio(NAME);
 const tasks = new Tasks();
-const shadows = !isTouch;
+/** desktop quality: sharper key shadow, the lamp's shadow, full-resolution AO */
+const hq = !isTouch;
 let director: Director | null = null;
 let world: World | null = null;
 const girl = new Girl(gltfLoader, {
@@ -85,6 +87,9 @@ const girl = new Girl(gltfLoader, {
   groundHeight: () => 0,
   collide: (p) => { if (nav) { const q = { x: p.x, z: p.z }; nav.resolve(q); p.x = q.x; p.z = q.z; } },
   postAnimate: () => pose?.update(),
+  // WebP copies of the garden's model (tools/build_girl_lite.mjs): a third of the download,
+  // and on phones and tablets 1k maps, a quarter of the GPU memory
+  url: hq ? '/models/girl_2k.glb' : '/models/girl_1k.glb',
 });
 let nav: NavWorld | null = null;
 let pose: PoseRig | null = null;
@@ -96,14 +101,15 @@ async function build() {
   audio.prerender().catch((e) => console.warn('song render failed', e));
   const bouquetLoad = buildBouquet(gltfLoader);
   await Promise.all([document.fonts.load('700 64px "Dancing Script"'), document.fonts.load('600 40px Fredoka')]).catch(() => {});
-  const step = async (k: number) => { progress.build = k; showProgress(); await nextFrame(); };
-  await step(0.05);
+  // stage marks show up in the browser's performance panel (and let tests time the build)
+  const step = async (k: number, stage: string) => { performance.mark(`bday:${stage}`); progress.build = k; showProgress(); await nextFrame(); };
+  await step(0.05, 'fonts');
   const shell = buildShell();
   scene.add(shell.group);
-  await step(0.25);
-  const furn = buildFurniture();
+  await step(0.25, 'shell');
+  const furn = buildFurniture({ lampShadow: hq });
   scene.add(furn.group);
-  await step(0.45);
+  await step(0.45, 'furniture');
   const W = ROOM;
   scene.add(hangPaintings([
     { art: PAINTINGS.whaleInClouds, height: 0.66, frame: 'gold', pos: [2.35, 1.72, W.minZ + 0.012], rotY: 0 },
@@ -113,10 +119,10 @@ async function build() {
     { art: PAINTINGS.balloonsOverHills, height: 0.6, frame: 'gold', pos: [0.15, 1.6, W.maxZ - 0.012], rotY: Math.PI },
     { art: PAINTINGS.cutouts, height: 0.7, frame: 'white', pos: [-1.05, 1.55, W.maxZ - 0.012], rotY: Math.PI },
   ], renderer.capabilities.getMaxAnisotropy()));
-  await step(0.6);
-  const decor = buildDecor(NAME, shadows);
+  await step(0.6, 'paintings');
+  const decor = buildDecor(NAME, hq);
   scene.add(decor.group);
-  await step(0.75);
+  await step(0.75, 'decor');
 
   // ---- the table: cake, flowers, card
   const table = LAYOUT.table;
@@ -125,7 +131,7 @@ async function build() {
   cake.group.rotation.y = Math.PI / 2;
   scene.add(cake.group);
   cake.group.updateMatrixWorld(true);
-  const flames = new Flames(cake.wickTops.map((p) => cake.group.localToWorld(p.clone())), { shadows });
+  const flames = new Flames(cake.wickTops.map((p) => cake.group.localToWorld(p.clone())));
   scene.add(flames.group);
   flames.onOut = () => audio.puff();
   const card = buildCard(NAME);
@@ -176,15 +182,29 @@ async function build() {
   scene.add(sparkles.points);
 
   // ---- reflections: the room itself, seen from its middle, as the environment
+  // The capture draws every material once. With no environment yet, each would compile a
+  // shader variant used for this one capture only; a blank stand-in environment of the same
+  // size (at intensity 0, so it adds nothing) makes them compile the programs the room is
+  // drawn with instead. (The girl is not in yet: her shaders compile with the rest below.)
   const pmrem = new THREE.PMREMGenerator(renderer);
+  const blank = new THREE.Scene();
+  blank.background = new THREE.Color(0x000000);
+  const standIn = pmrem.fromScene(blank);
+  scene.environment = standIn.texture;
+  scene.environmentIntensity = 0;
   const envRT = pmrem.fromScene(scene, 0.035, 0.1, 20, { position: new THREE.Vector3(-0.5, 1.2, 0) });
   scene.environment = envRT.texture;
   scene.environmentIntensity = 0.55;
+  standIn.dispose();
   pmrem.dispose();
-  await step(0.9);
+  await step(0.9, 'table+env');
 
   // ---- her
   await girlLoad;
+  performance.mark('bday:girl');
+  // the garden's night halo never lights this room: an unlit light still costs every lit
+  // pixel a turn of the light loop, so take it out
+  girl.halo.removeFromParent();
   scene.add(girl.root);
   girl.pos.set(0.15, 0, 1.15);
   girl.yaw = Math.PI * 0.92;
@@ -223,20 +243,73 @@ async function build() {
   const loop = makeLoop({ flames, decor, shell, tvShow, tv, record: furn.record, remote, confetti, sparkles });
   cam.setYaw(Math.PI * 0.08);
   progress.build = 1; showProgress();
+  // one step before she is seen, so the first frame shows her idle, not her bind pose
+  girl.update(1 / 60);
+  pruneShadowCasters(scene, girl.root);
+  // Merge everything that never moves, per material: the room draws in a fraction of the
+  // calls. What moves on its own (the record, the present's lid and teddy, the balloons,
+  // the lanterns, the sky) stays as it is.
+  const merged = [
+    mergeStatic(shell.group, [shell.sky.group]),
+    mergeStatic(furn.group, [furn.record, furn.tvScreen, furn.lamp.shade]),
+    mergeStatic(decor.group, [decor.balloons.group, decor.gift.lid, decor.gift.teddy, ...decor.lanterns.map((l) => l.group), ...decor.fairy.map((f) => f.mesh)]),
+    mergeStatic(decor.gift.teddy), mergeStatic(decor.gift.lid),
+    ...decor.lanterns.map((l) => mergeStatic(l.group)),
+    mergeStatic(cake.group), mergeStatic(bouquet), mergeStatic(card),
+  ];
   // Compile every shader now, behind the loading screen, including things that only
-  // appear later (compile skips hidden objects), so nothing hitches when they do.
+  // appear later (compile skips hidden objects), so nothing hitches when they do. Against
+  // an off-screen target: the room is drawn into the post chain's buffers (linear output,
+  // no tone mapping), and those programs differ from the screen's. Asynchronously where
+  // the driver can, so the loading screen keeps moving meanwhile.
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-  renderer.compile(scene, camera);
+  const probe = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  renderer.setRenderTarget(probe);
+  const compiled = renderer.extensions.has('KHR_parallel_shader_compile')
+    ? renderer.compileAsync(scene, camera)
+    : Promise.resolve(renderer.compile(scene, camera));
+  renderer.setRenderTarget(null);
   for (const o of hidden) o.visible = false;
+  await compiled;
+  probe.dispose();
   renderer.setAnimationLoop(loop);
   hud.hideLoading();
   hud.caption(`Welcome, ${NAME}! Walk to the cake when you're ready ✨`, 5);
   (window as any).__bday = {
-    world, director, scene, renderer, camera, flames, audio, girl, pose, nav, presets: { KNEEL, sitPreset },
+    world, director, scene, renderer, camera, flames, audio, girl, pose, nav, presets: { KNEEL, sitPreset }, merged,
     act: (id: string, i = 0) => { const it = director!.items.find((x) => x.id === id)!; director!.perform(it, it.actions(world!)[i]); },
   };
+  performance.mark('bday:ready');
   (window as any).__ready = true;
+}
+
+/**
+ * Only things big enough to throw a shadow you would notice cast one: her, the furniture,
+ * the cake, the presents, the balloons. Every caster is drawn again into each shadow map,
+ * so petals, sprinkles, book spines and picture frames are left out.
+ */
+function pruneShadowCasters(root: THREE.Object3D, keep: THREE.Object3D) {
+  const sphere = new THREE.Sphere(), scale = new THREE.Vector3();
+  const skip = new Set(['paintings', 'photos', 'bunting', 'bouquet', 'card', 'flames']);
+  const walk = (o: THREE.Object3D, inSkip: boolean) => {
+    if (o === keep) return;                                  // she always casts
+    const off = inSkip || skip.has(o.name);
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.castShadow) {
+      if (off) m.castShadow = false;
+      else {
+        // (for instanced meshes, the sphere round all the instances)
+        const im = m as THREE.InstancedMesh;
+        if (im.isInstancedMesh) { im.computeBoundingSphere(); sphere.copy(im.boundingSphere!); }
+        else { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); sphere.copy(m.geometry.boundingSphere!); }
+        m.getWorldScale(scale);
+        if (sphere.radius * Math.max(scale.x, scale.y, scale.z) < 0.1) m.castShadow = false;
+      }
+    }
+    for (const c of o.children) walk(c, off);
+  };
+  walk(root, false);
 }
 
 // ---------------------------------------------------------------- input

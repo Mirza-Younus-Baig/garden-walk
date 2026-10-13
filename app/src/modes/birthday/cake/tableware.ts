@@ -12,14 +12,17 @@ export async function buildBouquet(loader: GLTFLoader): Promise<THREE.Group> {
   const group = new THREE.Group();
   group.name = 'bouquet';
   // ---- vase: clear glass with water in it
-  const glass = phys('#ffffff', 0.03, { transmission: 1, thickness: 0.006, ior: 1.5, transparent: true, envMapIntensity: 1.2, specularIntensity: 1 });
+  // Glass by reflection rather than refraction: physical transmission re-renders the whole
+  // room into a texture every frame, a large cost for a vase. A faint, glossy, transparent
+  // shell with strong reflections reads as glass at table distance.
+  const glass = phys('#f4fbff', 0.04, { transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.6, specularIntensity: 1, clearcoat: 1, clearcoatRoughness: 0.03 });
   const profile: Array<[number, number]> = [[0, 0], [0.05, 0], [0.068, 0.03], [0.074, 0.08], [0.06, 0.14], [0.042, 0.19], [0.046, 0.215], [0.05, 0.22]];
   const vase = new THREE.Mesh(lathe(profile, 64), glass);
-  vase.material.side = THREE.DoubleSide;
   vase.castShadow = true;
   group.add(vase);
   const water = new THREE.Mesh(lathe([[0, 0.006], [0.046, 0.006], [0.064, 0.03], [0.069, 0.08], [0.058, 0.12], [0, 0.12]], 48),
-    phys('#d8f0ec', 0.02, { transmission: 0.95, thickness: 0.05, ior: 1.33, transparent: true, attenuationColor: new THREE.Color('#bfe8dc'), attenuationDistance: 0.4 }));
+    phys('#cfeee6', 0.05, { transparent: true, opacity: 0.32, depthWrite: false, envMapIntensity: 1.2 }));
+  water.renderOrder = 1; vase.renderOrder = 2;          // water seen through the glass
   group.add(water);
 
   // ---- flowers

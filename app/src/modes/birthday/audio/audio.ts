@@ -224,6 +224,7 @@ export class Audio {
   private bell(f: number, t: number, amp: number) {
     const ctx = this.ctx!;
     for (const [ratio, a, d] of [[1, 1, 1.6], [2.76, 0.35, 0.6], [5.4, 0.15, 0.3]] as const) {
+      if (f * ratio > ctx.sampleRate * 0.45) continue;   // past what the output can carry: it would alias
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.frequency.value = f * ratio;
       this.env(g, t, 0.004, amp * a, d);
@@ -339,6 +340,7 @@ function playNote(ctx: BaseAudioContext, out: AudioNode, n: Note) {
   pan.pan.value = n.voice === 'bass' ? 0 : Math.max(-0.6, Math.min(0.6, (n.midi - 66) / 30));
   pan.connect(out);
   const partial = (ratio: number, amp: number, decay: number, type: OscillatorType = 'sine', detune = 0, attack = 0.004) => {
+    if (f * ratio > ctx.sampleRate * 0.45) return;      // past what the output can carry: it would alias
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = type; o.frequency.value = f * ratio; o.detune.value = detune;
     g.gain.setValueAtTime(0, t);

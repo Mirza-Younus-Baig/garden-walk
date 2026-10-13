@@ -203,14 +203,24 @@ export function buildCake(name: string): CakeModel {
   const wickGeo = new THREE.CylinderGeometry(0.0007, 0.0008, 0.008, 6);
   wickGeo.translate(0, 0.004, 0);
   const wickMat = std('#1b1612', 0.9);
-  for (let i = 0; i < CANDLES.count; i++) {
-    const a = (i / CANDLES.count) * Math.PI * 2 + Math.PI / CANDLES.count;
-    const c = canvas(32, 128), ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#fffaf2'; ctx.fillRect(0, 0, 32, 128);
-    ctx.fillStyle = palette[i];
-    for (let y = -40; y < 160; y += 20) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(32, y + 26); ctx.lineTo(32, y + 37); ctx.lineTo(0, y + 11); ctx.fill(); }
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-    const candle = new THREE.Mesh(candleGeo, phys('#ffffff', 0.45, { map: tex, sheen: 0.4, sheenColor: new THREE.Color('#ffffff'), clearcoat: 0.2 }));
+  // one striped texture for all eight (a column each), so the candles share a material
+  const N = CANDLES.count, atlas = canvas(32 * N, 128), actx = atlas.getContext('2d')!;
+  for (let i = 0; i < N; i++) {
+    actx.save(); actx.beginPath(); actx.rect(i * 32, 0, 32, 128); actx.clip(); actx.translate(i * 32, 0);
+    actx.fillStyle = '#fffaf2'; actx.fillRect(0, 0, 32, 128);
+    actx.fillStyle = palette[i];
+    for (let y = -40; y < 160; y += 20) { actx.beginPath(); actx.moveTo(0, y); actx.lineTo(32, y + 26); actx.lineTo(32, y + 37); actx.lineTo(0, y + 11); actx.fill(); }
+    actx.restore();
+  }
+  const atlasTex = new THREE.CanvasTexture(atlas); atlasTex.colorSpace = THREE.SRGBColorSpace;
+  const candleMat = phys('#ffffff', 0.45, { map: atlasTex, sheen: 0.4, sheenColor: new THREE.Color('#ffffff'), clearcoat: 0.2 });
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + Math.PI / N;
+    // this candle's column of the atlas
+    const geo = candleGeo.clone();
+    const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let k = 0; k < uv.count; k++) uv.setX(k, (i + uv.getX(k) * 0.98 + 0.01) / N);
+    const candle = new THREE.Mesh(geo, candleMat);
     const cx = Math.cos(a) * CANDLES.ringR, cz = Math.sin(a) * CANDLES.ringR;
     candle.position.set(cx, top + 0.002, cz);
     candle.castShadow = true;

@@ -53,15 +53,41 @@ export class Batcher {
   }
 }
 
-/** a standard material, briefly */
-export function std(color: THREE.ColorRepresentation, roughness = 0.7, metalness = 0, extra: THREE.MeshStandardMaterialParameters = {}) {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
+/**
+ * Materials are shared: asking twice for the same look returns the same material. That
+ * keeps the material and shader count down, and lets the Batcher merge every piece that
+ * looks alike (all the cream books, all the brass legs) into one draw. Treat what these
+ * return as read-only; a material that changes at run time needs `own()`.
+ */
+const cache = new Map<string, THREE.Material>();
+const keyOf = (kind: string, params: object) => kind + JSON.stringify(params, (_k, v) =>
+  v && (v as THREE.Texture).isTexture ? 'tex:' + (v as THREE.Texture).uuid
+    : v && (v as THREE.Color).isColor ? 'col:' + (v as THREE.Color).getHexString()
+    : v);
+function shared<M extends THREE.Material>(kind: string, params: object, make: () => M): M {
+  const k = keyOf(kind, params);
+  let m = cache.get(k) as M | undefined;
+  if (!m) { m = make(); cache.set(k, m); }
+  return m;
 }
 
-/** a physical material, briefly */
-export function phys(color: THREE.ColorRepresentation, roughness = 0.5, extra: THREE.MeshPhysicalMaterialParameters = {}) {
-  return new THREE.MeshPhysicalMaterial({ color, roughness, ...extra });
+/** a standard material, briefly (shared, read-only) */
+export function std(color: THREE.ColorRepresentation, roughness = 0.7, metalness = 0, extra: THREE.MeshStandardMaterialParameters = {}) {
+  const p = { color, roughness, metalness, ...extra };
+  return shared('std', p, () => new THREE.MeshStandardMaterial(p));
 }
+
+/** a physical material, briefly (shared, read-only) */
+export function phys(color: THREE.ColorRepresentation, roughness = 0.5, extra: THREE.MeshPhysicalMaterialParameters = {}) {
+  const p = { color, roughness, ...extra };
+  return shared('phys', p, () => new THREE.MeshPhysicalMaterial(p));
+}
+
+/** a material of its own, for one that is changed while the room runs (a lamp shade, the TV) */
+export const own = <M extends THREE.Material>(m: M): M => m.clone() as M;
+
+/** number of distinct shared materials made (for tests and profiling) */
+export const sharedMaterialCount = () => cache.size;
 
 /**
  * A cushion: a rounded box whose faces bulge, most at the middle, as stuffing does.
@@ -92,4 +118,55 @@ export const leg = (rTop: number, rBot: number, h: number, seg = 14) => {
 /** a lathe from (radius, height) pairs */
 export function lathe(points: Array<[number, number]>, seg = 48) {
   return new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+}
+
+/**
+ * Collapse a finished, motionless part of the scene into as few meshes as possible: every
+ * mesh under `root` that shares a material (and shadow settings) with others is merged
+ * into one, in root's own space. Parts that move on their own are listed in `keep` and
+ * left exactly as they are, with their whole subtree. Instanced, skinned and multi-material
+ * meshes are left alone too.
+ */
+export function mergeStatic(root: THREE.Object3D, keep: Iterable<THREE.Object3D> = []) {
+  const skip = new Set(keep);
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const groups = new Map<string, { mat: THREE.Material; cast: boolean; receive: boolean; order: number; geos: THREE.BufferGeometry[]; meshes: THREE.Mesh[] }>();
+  const visit = (o: THREE.Object3D) => {
+    if (skip.has(o)) return;
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh && !(m as THREE.SkinnedMesh).isSkinnedMesh
+        && !Array.isArray(m.material) && m.visible && m.children.length === 0) {
+      const key = `${m.material.uuid}|${m.castShadow}|${m.receiveShadow}|${m.renderOrder}`;
+      let g = groups.get(key);
+      if (!g) groups.set(key, g = { mat: m.material, cast: m.castShadow, receive: m.receiveShadow, order: m.renderOrder, geos: [], meshes: [] });
+      const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      if (!geo.getAttribute('normal')) geo.computeVertexNormals();
+      if (!geo.getAttribute('uv')) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.getAttribute('position').count * 2), 2));
+      for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+      geo.clearGroups();
+      geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+      g.geos.push(geo); g.meshes.push(m);
+    }
+    for (const c of o.children.slice()) visit(c);
+  };
+  for (const c of root.children.slice()) visit(c);
+  let before = 0, after = 0;
+  for (const g of groups.values()) {
+    before += g.meshes.length;
+    if (g.meshes.length < 2) { for (const geo of g.geos) geo.dispose(); after += g.meshes.length; continue; }
+    const merged = mergeGeometries(g.geos, false);
+    for (const geo of g.geos) geo.dispose();
+    if (!merged) { after += g.meshes.length; continue; }
+    merged.computeBoundingSphere();
+    for (const m of g.meshes) m.removeFromParent();
+    const mesh = new THREE.Mesh(merged, g.mat);
+    mesh.castShadow = g.cast; mesh.receiveShadow = g.receive; mesh.renderOrder = g.order;
+    root.add(mesh);
+    after++;
+  }
+  // drop groups the merge has emptied
+  const prune = (o: THREE.Object3D) => { for (const c of o.children.slice()) { prune(c); if (c.type === 'Group' && c.children.length === 0 && !skip.has(c)) c.removeFromParent(); } };
+  prune(root);
+  return { before, after };
 }

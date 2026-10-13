@@ -99,7 +99,7 @@ export class Flames {
   private lightBase: number;
   private centre = new THREE.Vector3();
 
-  constructor(wicks: THREE.Vector3[], opts: { shadows: boolean }) {
+  constructor(wicks: THREE.Vector3[]) {
     this.group.name = 'flames';
     const geo = new THREE.PlaneGeometry(0.016, 0.046);
     geo.translate(0, 0.023, 0);
@@ -130,14 +130,8 @@ export class Flames {
     this.light = new THREE.PointLight('#ffa64d', this.lightBase * wicks.length, 7, 2);
     // above the flames, so the cake top is lit like the room around it rather than scorched
     this.light.position.copy(this.centre).add(new THREE.Vector3(0, 0.32, 0));
-    if (opts.shadows) {
-      this.light.castShadow = true;
-      this.light.shadow.mapSize.set(512, 512);
-      this.light.shadow.radius = 5;
-      this.light.shadow.bias = -0.002;
-      this.light.shadow.normalBias = 0.03;
-      this.light.shadow.camera.near = 0.05;
-    }
+    // No shadow from the candle light: a point light's shadow is a cube map, six extra
+    // renders of the room every frame, for shadows the key light already provides.
     this.group.add(this.light);
     this.smoke = new Smoke();
     this.group.add(this.smoke.points);
@@ -212,8 +206,6 @@ export class Flames {
     // one light for all; a shared, slower flicker on top so the room breathes
     const roomFlick = 0.9 + 0.06 * Math.sin(t * 9.1) + 0.04 * Math.sin(t * 15.7 + 1.3);
     this.light.intensity = this.lightBase * litSum * roomFlick;
-    // no candles, no candle shadows: skip the cube shadow map rather than render it dark
-    this.light.shadow.autoUpdate = litSum > 0.02;
     this.smoke.update(dt);
   }
 }

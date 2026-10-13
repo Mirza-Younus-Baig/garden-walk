@@ -66,7 +66,7 @@ export function normalFromHeight(hgt: Float32Array, w: number, h: number, streng
     const u = hgt[((y - 1 + h) % h) * w + x], dn = hgt[((y + 1) % h) * w + x];
     // canvas rows run down the texture; three's +v runs up it
     let nx = (l - r) * strength, ny = (dn - u) * strength, nz = 1;
-    const k = 1 / Math.hypot(nx, ny, nz);
+    const k = 1 / Math.sqrt(nx * nx + ny * ny + 1);   // (Math.hypot is several times slower)
     nx *= k; ny *= k; nz *= k;
     const i = (y * w + x) * 4;
     d[i] = (nx * 0.5 + 0.5) * 255; d[i + 1] = (ny * 0.5 + 0.5) * 255; d[i + 2] = (nz * 0.5 + 0.5) * 255; d[i + 3] = 255;

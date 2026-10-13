@@ -65,7 +65,9 @@ export class Hud {
     this.micMeter = this.micBtn.querySelector('.bd-meter')!;
     this.soundBtn = el('button', 'bd-btn', tools, ICON.sound) as HTMLButtonElement;
     this.soundBtn.title = 'Sound on / off';
-    this.soundBtn.setAttribute('aria-label', this.soundBtn.title);
+    this.soundBtn.setAttribute('aria-label', 'Mute');
+    this.soundBtn.setAttribute('aria-pressed', 'false');
+    this.micBtn.setAttribute('aria-pressed', 'false');
     const helpBtn = el('button', 'bd-btn', tools, ICON.help) as HTMLButtonElement;
     helpBtn.title = 'Controls';
     helpBtn.setAttribute('aria-label', 'Show controls');
@@ -151,12 +153,23 @@ export class Hud {
     this.bannerEl.classList.toggle('small', state === 'small');
   }
 
+  private micState = '';
+  private micLevel = -1;
+  /** called every frame while the mic listens: only touches the DOM when something shows a change */
   setMic(state: 'off' | 'on' | 'denied', level = 0) {
-    this.micBtn.classList.toggle('on', state === 'on');
-    this.micBtn.classList.toggle('denied', state === 'denied');
-    this.micMeter.style.transform = `scaleY(${Math.min(1, level)})`;
+    if (state !== this.micState) {
+      this.micState = state;
+      this.micBtn.classList.toggle('on', state === 'on');
+      this.micBtn.classList.toggle('denied', state === 'denied');
+      this.micBtn.setAttribute('aria-pressed', String(state === 'on'));
+    }
+    const q = Math.round(Math.min(1, level) * 40) / 40;
+    if (q !== this.micLevel) { this.micLevel = q; this.micMeter.style.transform = `scaleY(${q})`; }
   }
-  setSound(on: boolean) { this.soundBtn.innerHTML = on ? ICON.sound : ICON.muted; }
+  setSound(on: boolean) {
+    this.soundBtn.innerHTML = on ? ICON.sound : ICON.muted;
+    this.soundBtn.setAttribute('aria-pressed', String(!on));
+  }
 
   /** the birthday card, opened like a real one; resolves when closed */
   showCard(): Promise<void> {

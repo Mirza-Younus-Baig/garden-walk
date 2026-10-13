@@ -40,6 +40,37 @@ main.ts ──(?mode=birthday)──▶ modes/birthday/index.ts     composition 
 - **Microphone** (optional, the mic button): `core/blow.ts` tells a breath from talking by
   how loud, how noise-like and how low it is. The keyboard always works too.
 
+## Keeping it light
+
+The room is built to run smoothly on a laptop's integrated GPU and on phones. When you add
+to it, keep to these:
+
+- **Draw calls.** Static scenery is merged per material at the end of the build
+  (`mergeStatic` in `room/build.ts`); anything that moves on its own is listed as a `keep`.
+  Materials come from `std()` / `phys()`, which share one material per look so alike
+  pieces merge. Use `own()` for a material that changes at run time (the TV screen,
+  the lamp shade). Repeated things (balloons, confetti) are instanced, and textures
+  that differ per piece (bunting flags, candles, photos) are atlases.
+- **Shadows.** Only the key lantern (every device) and the floor lamp (desktop) cast
+  shadows, both spot lights. Point-light shadows cost six renders each per frame, so there
+  are none. `pruneShadowCasters` in `index.ts` drops shadows from small things.
+- **No transmission.** Physical `transmission` re-renders the room every frame; glass is
+  done with reflections and opacity instead.
+- **Shaders.** Everything is compiled behind the loading screen, against an off-screen
+  target like the one the post chain draws into, and asynchronously where the driver
+  allows. The environment capture uses a stand-in environment so it compiles the same
+  programs the room uses (about 70 in all).
+- **Downloads.** The girl loads as WebP copies of the garden's model
+  (`node tools/build_girl_lite.mjs`): `girl_2k.glb` on desktop, `girl_1k.glb` on touch
+  devices.
+- **Per frame.** No allocations in update loops, no work for things at rest (landed
+  confetti, out flames), and the HUD writes to the DOM only when something changes. No
+  `backdrop-filter` over the canvas, because it re-blurs on every frame.
+- **Resolution** adapts: the pixel ratio steps down if frames run slow, and back up.
+
+Build stages carry `performance.mark('bday:<stage>')`, so the browser's performance panel
+shows where loading time goes.
+
 ## Things to do there
 
 | Where | Actions |

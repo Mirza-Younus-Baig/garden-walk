@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { LAYOUT, ROOM } from '../config';
-import { Batcher, std, phys, cushion, leg, lathe } from './build';
+import { Batcher, std, phys, own, cushion, leg, lathe } from './build';
 import { velvet, knit, rug as rugTex, walnut, canvas } from './textures';
 import { box, circle, type Collider } from '../core/nav';
 
@@ -21,7 +21,8 @@ export interface Furniture {
 
 const HALF_PI = Math.PI / 2;
 
-export function buildFurniture(): Furniture {
+/** `lampShadow`: the floor lamp casts shadows too (desktop; phones keep only the key light's) */
+export function buildFurniture(opts: { lampShadow: boolean } = { lampShadow: true }): Furniture {
   const group = new THREE.Group();
   group.name = 'furniture';
   const colliders: Collider[] = [];
@@ -70,9 +71,8 @@ export function buildFurniture(): Furniture {
     pillow('#f2e8dc', '#ffffff', L / 2 - 0.72, -0.12);
     // a knitted throw over the left arm
     const kn = knit(512);
-    const throwMat = std('#efe5d4', 0.95, 0, { map: kn.map, normalMap: kn.normal, normalScale: new THREE.Vector2(0.9, 0.9) });
+    const throwMat = std('#efe5d4', 0.95, 0, { map: kn.map, normalMap: kn.normal, normalScale: new THREE.Vector2(0.9, 0.9), side: THREE.DoubleSide });
     for (const t of [kn.map, kn.normal]) t.repeat.set(2, 3);
-    throwMat.side = THREE.DoubleSide;
     const drape = new THREE.Mesh(drapeOverArm(-L / 2 + 0.1, 0.62, 0.115, 0.58), throwMat);
     drape.position.z = 0.12;
     drape.castShadow = drape.receiveShadow = true;
@@ -179,9 +179,9 @@ export function buildFurniture(): Furniture {
     const body = new THREE.Mesh(new RoundedBoxGeometry(w + 0.03, h + 0.03, 0.035, 2, 0.006), phys('#141416', 0.35, { metalness: 0.4, clearcoat: 0.6 }));
     body.castShadow = true;
     g.add(body);
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(w, h), phys('#050506', 0.12, {
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(w, h), own(phys('#050506', 0.12, {
       clearcoat: 1, clearcoatRoughness: 0.05, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0,
-    }));
+    })));
     screen.position.z = 0.0181;
     screen.name = 'tvScreen';
     g.add(screen);
@@ -206,7 +206,7 @@ export function buildFurniture(): Furniture {
     b.add(new THREE.CylinderGeometry(0.02, 0.02, 0.04, 16), brass, { x: 0, y: 0.6, z: 0 });
     g.add(b.build('lamp-frame'));
     // linen drum shade: lit from inside, so it glows
-    const shadeMat = phys('#f6e7cf', 0.9, { side: THREE.DoubleSide, emissive: new THREE.Color('#ffb661'), emissiveIntensity: 0.9, transmission: 0, sheen: 0.4, sheenColor: new THREE.Color('#fff2dc') });
+    const shadeMat = own(phys('#f6e7cf', 0.9, { side: THREE.DoubleSide, emissive: new THREE.Color('#ffb661'), emissiveIntensity: 0.9, sheen: 0.4, sheenColor: new THREE.Color('#fff2dc') }));
     const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.24, 0.3, 40, 1, true), shadeMat);
     shade.position.y = 1.62;
     shade.castShadow = false;
@@ -215,7 +215,7 @@ export function buildFurniture(): Furniture {
     const down = new THREE.SpotLight('#ffbf7a', 9, 6, 1.15, 0.85, 2);
     down.position.set(0, 1.55, 0);
     down.target.position.set(0.3, 0, 0.2);
-    down.castShadow = true;
+    down.castShadow = opts.lampShadow;
     down.shadow.mapSize.set(1024, 1024);
     down.shadow.radius = 6;
     down.shadow.bias = -0.0004;
@@ -283,7 +283,7 @@ export function buildFurniture(): Furniture {
     b.add(leg(0.02, 0.02, 0.54), brass, { x: 0, y: 0.02, z: 0 });
     b.add(new THREE.CylinderGeometry(0.15, 0.17, 0.02, 40), brass, { x: 0, y: 0.01, z: 0 });
     // a jar of sweets with a cork lid
-    const jarGlass = phys('#ffffff', 0.05, { transmission: 1, thickness: 0.01, ior: 1.45, transparent: true });
+    const jarGlass = phys('#f4fbff', 0.05, { transparent: true, opacity: 0.18, depthWrite: false, envMapIntensity: 1.5, clearcoat: 1 });
     b.add(lathe([[0, 0], [0.055, 0], [0.06, 0.02], [0.06, 0.13], [0.05, 0.145], [0, 0.145]], 32), jarGlass, { x: 0.06, y: 0.575, z: 0.04 });
     b.add(new THREE.CylinderGeometry(0.046, 0.044, 0.03, 24), std('#b98d5c', 0.9), { x: 0.06, y: 0.735, z: 0.04 });
     const sweets = ['#ff8fab', '#ffd166', '#8ecae6', '#b9e769', '#cdb4db'].map((c) => phys(c, 0.3, { clearcoat: 1 }));
