@@ -2,7 +2,6 @@ import '@fontsource/fredoka/400.css';
 import '@fontsource/fredoka/600.css';
 import '@fontsource/dancing-script/700.css';
 import './menu.css';
-import { nameParam } from '../params';
 
 export type ModeId = 'garden' | 'birthday';
 
@@ -64,20 +63,16 @@ export const MODES: ModeCard[] = [
 
 /** The first screen: one card per mode. */
 export function showMenu(modes: ModeCard[]) {
-  const name = nameParam();
   const root = document.createElement('main');
   root.className = 'menu';
   root.innerHTML = `
     <div class="menu-sky" aria-hidden="true">${Array.from({ length: 26 }, (_, i) =>
       `<i style="--x:${(i * 37) % 100}%;--y:${(i * 53) % 100}%;--d:${4 + (i % 7)}s;--s:${4 + (i % 5) * 3}px"></i>`).join('')}</div>
     <header>
-      <p class="menu-eyebrow">a little world made for</p>
-      <h1></h1>
-      <p class="menu-sub">Where would you like to go?</p>
+      <h1>Where would you like to go?</h1>
     </header>
     <div class="menu-cards"></div>
     <footer><span class="keys">Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk · drag to look around</span><span class="touch">Walk with your left thumb · tap things to use them</span></footer>`;
-  root.querySelector('h1')!.textContent = name;
   const cards = root.querySelector('.menu-cards')!;
   for (const m of modes) {
     const a = document.createElement('a');
