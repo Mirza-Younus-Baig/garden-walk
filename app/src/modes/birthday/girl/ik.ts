@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { rotateWorld } from '../../../girl/bones';
 
 /**
  * Two-bone IK (hip-knee-ankle, shoulder-elbow-wrist), solved in world space so it does not
@@ -17,17 +18,9 @@ const _ba = new THREE.Vector3(), _bc = new THREE.Vector3(), _ac = new THREE.Vect
 const _n = new THREE.Vector3(), _bOff = new THREE.Vector3(), _pOff = new THREE.Vector3();
 const _q0 = new THREE.Quaternion(), _q1 = new THREE.Quaternion();
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
-const _pq = new THREE.Quaternion(), _pInv = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3();
-const _m = new THREE.Matrix4();
+const _v = new THREE.Vector3();
 
 const clampDot = (x: number) => Math.min(1, Math.max(-1, x));
-
-/** turn a bone by a world-space rotation, leaving its children to follow */
-export function rotateBoneWorld(bone: THREE.Object3D, q: THREE.Quaternion) {
-  _m.copy(bone.parent!.matrixWorld).decompose(_v, _pq, _s);
-  _pInv.copy(_pq).invert();
-  bone.quaternion.premultiply(_pq).premultiply(q).premultiply(_pInv);
-}
 
 export interface Chain { root: THREE.Object3D; mid: THREE.Object3D; end: THREE.Object3D }
 
@@ -56,14 +49,14 @@ export function solveTwoBone(ch: Chain, target: THREE.Vector3, pole: THREE.Vecto
   }
   _n.normalize();
   // rotating b->c about (ba x bc) by a positive angle swings it away from b->a: opens the joint
-  rotateBoneWorld(ch.mid, _q0.setFromAxisAngle(_n, want - now));
+  rotateWorld(ch.mid, _q0.setFromAxisAngle(_n, want - now));
   ch.mid.updateMatrixWorld(true);
 
   // 2. swing the root so the end lands on the target
   ch.end.getWorldPosition(_c);
   _ac.subVectors(_c, _a).normalize();
   _at.subVectors(target, _a).normalize();
-  rotateBoneWorld(ch.root, _q0.setFromUnitVectors(_ac, _at));
+  rotateWorld(ch.root, _q0.setFromUnitVectors(_ac, _at));
   ch.root.updateMatrixWorld(true);
 
   // 3. twist about root->target until the middle joint faces the pole
@@ -73,7 +66,7 @@ export function solveTwoBone(ch: Chain, target: THREE.Vector3, pole: THREE.Vecto
   if (_bOff.lengthSq() > 1e-10 && _pOff.lengthSq() > 1e-10) {
     _bOff.normalize(); _pOff.normalize();
     const ang = Math.atan2(_v.crossVectors(_bOff, _pOff).dot(_at), clampDot(_bOff.dot(_pOff)));
-    rotateBoneWorld(ch.root, _q1.setFromAxisAngle(_at, ang));
+    rotateWorld(ch.root, _q1.setFromAxisAngle(_at, ang));
   }
   if (weight < 1) {
     // blend from the animated pose toward the solution. (slerpQuaternions must not be given
@@ -92,6 +85,6 @@ export function aimBone(bone: THREE.Object3D, from: THREE.Vector3, to: THREE.Vec
   if (weight <= 1e-4) return;
   _q0.setFromUnitVectors(from, to);
   if (weight < 1) _q0.slerp(_q1.identity(), 1 - weight);
-  rotateBoneWorld(bone, _q0);
+  rotateWorld(bone, _q0);
   bone.updateMatrixWorld(true);
 }

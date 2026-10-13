@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { solveTwoBone, rotateBoneWorld, aimBone, type Chain } from './ik';
+import { solveTwoBone, aimBone, type Chain } from './ik';
+import { rotateWorld } from '../../../girl/bones';
 
 /**
  * A procedural layer over her idle and walk clips: sitting, kneeling, leaning in to blow,
@@ -169,7 +170,7 @@ export class PoseRig {
       const parent = this.hips.parent!;
       parent.updateMatrixWorld(true);
       this.hips.position.copy(parent.worldToLocal(_w.copy(_hips)));
-      if (w > 1e-3) rotateBoneWorld(this.hips, _q.setFromAxisAngle(_r, -P.hipsPitch * w));
+      if (w > 1e-3) rotateWorld(this.hips, _q.setFromAxisAngle(_r, -P.hipsPitch * w));
       this.hips.updateMatrixWorld(true);
     }
 
@@ -177,15 +178,15 @@ export class PoseRig {
     // ---- spine: the preset's bend, the lean, and a breath that lifts the chest
     const spine = P.spine * w + this.lean * 0.55 - this.inhale * 0.05 + this.blow * 0.05;
     const chest = P.chest * w + this.lean * 0.45 - this.inhale * 0.07 + this.blow * 0.06;
-    if (Math.abs(spine) > 1e-4) rotateBoneWorld(this.spine, _q.setFromAxisAngle(_r, -spine));
+    if (Math.abs(spine) > 1e-4) rotateWorld(this.spine, _q.setFromAxisAngle(_r, -spine));
     this.spine.updateMatrixWorld(true);
-    if (Math.abs(chest) > 1e-4) rotateBoneWorld(this.chest, _q.setFromAxisAngle(_r, -chest));
+    if (Math.abs(chest) > 1e-4) rotateWorld(this.chest, _q.setFromAxisAngle(_r, -chest));
     // shoulders rise on the breath in
     if (this.inhale > 1e-3) {
       const s = this.inhale * 0.1;
       // a turn about forward lifts her left side when positive (forward x left = up)
-      rotateBoneWorld(this.scapL, _q.setFromAxisAngle(_f, s * this.lSide));
-      rotateBoneWorld(this.scapR, _q.setFromAxisAngle(_f, -s * this.lSide));
+      rotateWorld(this.scapL, _q.setFromAxisAngle(_f, s * this.lSide));
+      rotateWorld(this.scapR, _q.setFromAxisAngle(_f, -s * this.lSide));
     }
     this.chest.updateMatrixWorld(true);
 
@@ -249,7 +250,7 @@ export class PoseRig {
         fwdNow.copy(this.headFwd).applyQuaternion(_q).normalize();
         aimBone(this.head, fwdNow, _t, this.lookW * 0.6);
       }
-      if (this.blow > 1e-3) rotateBoneWorld(this.head, _q.setFromAxisAngle(_r, -this.blow * 0.05));
+      if (this.blow > 1e-3) rotateWorld(this.head, _q.setFromAxisAngle(_r, -this.blow * 0.05));
       this.head.updateMatrixWorld(true);
     }
   }

@@ -103,7 +103,7 @@ export function happyBirthday(name = 'Mithra', bpm = 92): Score {
       // lyric lines break after "you" / the name: notes 0-5, 6-11, 12-18, 19-24
       const ends = [5, 11, 18, 24];
       if (i === ends[line]) {
-        const text = LINES[line].replace('{name}', name);
+        const text = LINES[line].replace('{name}', () => name);
         // the very last line lingers over the closing chord; the others give way to the next
         lyrics.push({ t: lineStart - 0.15, end: tSec + (last && full ? 2.5 : -0.15), text, name: line === 2 });
         line++; lineStart = tSec;

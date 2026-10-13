@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SpringRig, type ChainDef, type RingDef, type SpringParams } from './springs';
 import { fitSkirt, type SkirtFit } from './skirt';
+import { rotateWorld } from './bones';
+import { flag } from '../params';
 
 /** where she touches the flowers: fed to the field every frame, in world space */
 export interface Contacts {
@@ -78,20 +80,9 @@ export interface GirlOptions {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _q = new THREE.Quaternion();
-const _pq = new THREE.Quaternion();
-const _pInv = new THREE.Quaternion();
 const _v = new THREE.Vector3();
-const _s = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _side = new THREE.Vector3();
-const _m = new THREE.Matrix4();
-
-/** turn a bone by a world-space rotation, leaving its children to follow */
-export function rotateWorld(bone: THREE.Object3D, q: THREE.Quaternion) {
-  _m.copy(bone.parent!.matrixWorld).decompose(_v, _pq, _s);
-  _pInv.copy(_pq).invert();
-  bone.quaternion.premultiply(_pq).premultiply(q).premultiply(_pInv);
-}
 
 export class Girl {
   root = new THREE.Group();
@@ -165,10 +156,10 @@ export class Girl {
       spine: bone('Spine1_M'), chest: bone('Chest_M'), head: bone('Head_M'),
       ankleL: bone('Ankle_L'), ankleR: bone('Ankle_R'), kneeL: bone('Knee_L'), kneeR: bone('Knee_R'), hips: bone('Root_M'),
     };
-    if (!location.search.includes('nosprings')) {
-      this.springs = new SpringRig(this.root, this.model, CHAINS, location.search.includes('noskirtring') ? [] : [SKIRT_RING]);
+    if (!flag('nosprings')) {
+      this.springs = new SpringRig(this.root, this.model, CHAINS, flag('noskirtring') ? [] : [SKIRT_RING]);
     }
-    if (!location.search.includes('noskirtfix')) this.skirtFit = fitSkirt(this.model);
+    if (!flag('noskirtfix')) this.skirtFit = fitSkirt(this.model);
     this.root.updateMatrixWorld(true);
     this.readContacts();
   }
@@ -227,8 +218,17 @@ export class Girl {
     this.prevSpeed = this.speed;
     const fwd = _fwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     this.vel.copy(fwd).multiplyScalar(this.speed);
+    const px = this.pos.x, pz = this.pos.z;
     this.pos.addScaledVector(this.vel, dt);
-    this.opts.collide?.(this.pos);
+    if (this.opts.collide) {
+      this.opts.collide(this.pos);
+      // Held back by something: she goes only as fast as she actually moved, so pressing
+      // into a wall slows the walk to a stand rather than treading on the spot.
+      if (dt > 0) {
+        const moved = Math.hypot(this.pos.x - px, this.pos.z - pz) / dt;
+        if (moved < this.speed - 1e-3) { this.speed = this.prevSpeed = moved; this.vel.copy(fwd).multiplyScalar(moved); }
+      }
+    }
     this.pos.y = this.opts.groundHeight(this.pos.x, this.pos.z);
     this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
 

@@ -2,6 +2,7 @@ import '@fontsource/fredoka/400.css';
 import '@fontsource/fredoka/600.css';
 import '@fontsource/dancing-script/700.css';
 import './menu.css';
+import { nameParam } from '../params';
 
 export type ModeId = 'garden' | 'birthday';
 
@@ -63,7 +64,7 @@ export const MODES: ModeCard[] = [
 
 /** The first screen: one card per mode. */
 export function showMenu(modes: ModeCard[]) {
-  const name = new URLSearchParams(location.search).get('name') ?? 'Mithra';
+  const name = nameParam();
   const root = document.createElement('main');
   root.className = 'menu';
   root.innerHTML = `

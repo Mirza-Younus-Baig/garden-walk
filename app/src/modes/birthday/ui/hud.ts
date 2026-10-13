@@ -140,9 +140,10 @@ export class Hud {
     this.lyricText = text ?? '';
     if (!text) { this.lyricsEl.classList.remove('show'); return; }
     // the name gets its own sparkle
-    const safe = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
-    const nm = this.name.replace(/[&<>]/g, '');
-    this.lyricsEl.innerHTML = isName ? safe.replace(nm, `<b>${nm}</b>`) : safe;
+    const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+    const safe = esc(text), nm = esc(this.name);
+    // (a function, so `$&` and the like in a name are taken literally)
+    this.lyricsEl.innerHTML = isName ? safe.replace(nm, () => `<b>${nm}</b>`) : safe;
     this.lyricsEl.classList.remove('show');
     void this.lyricsEl.offsetWidth;
     this.lyricsEl.classList.add('show');

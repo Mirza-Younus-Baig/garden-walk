@@ -64,34 +64,45 @@ const CLASP = V(0.02, 0.07, 0.25), CLASP_POLE = V(0.5, -0.45, -0.1), PRAYER = V(
 
 // ---------------------------------------------------------------- shared moves
 /** walk to a spot along a path round the furniture, then turn to face `yaw` */
+/** the most the final settle slides her: anything further is walked, never glided */
+const SETTLE_MAX = 0.3;
+
 async function goTo(w: World, s: AbortSignal, x: number, z: number, yaw: number) {
   const g = w.girl;
-  const path = w.nav.findPath({ x: g.pos.x, z: g.pos.z }, { x, z }) ?? [{ x, z }];
-  let stuck = 0, lastD = Infinity;
-  for (let i = 0; i < path.length; i++) {
-    const wp = path[i], last = i === path.length - 1;
-    await w.tasks.each((dt) => {
-      const dx = wp.x - g.pos.x, dz = wp.z - g.pos.z, d = Math.hypot(dx, dz);
-      if (d < (last ? 0.04 : 0.22)) return true;
-      // give up on a waypoint she cannot reach (something in the way) rather than push forever
-      stuck = d < lastD - 0.002 ? 0 : stuck + dt; lastD = d;
-      if (stuck > 1.2) return true;
-      const pace = last ? THREE.MathUtils.clamp(d / 0.6, 0.22, 1) : 1;
-      g.setMoveDir((dx / d) * pace, (dz / d) * pace);
-      return false;
-    }, s);
-    lastD = Infinity; stuck = 0;
+  const away = () => Math.hypot(x - g.pos.x, z - g.pos.z);
+  // walk the path; if something blocked her short of the spot, plan again from where she
+  // stands and walk once more
+  for (let attempt = 0; attempt < 2 && away() > (attempt ? SETTLE_MAX : 0.04); attempt++) {
+    const path = w.nav.findPath({ x: g.pos.x, z: g.pos.z }, { x, z }) ?? [{ x, z }];
+    let stuck = 0, lastD = Infinity;
+    for (let i = 0; i < path.length; i++) {
+      const wp = path[i], last = i === path.length - 1;
+      await w.tasks.each((dt) => {
+        const dx = wp.x - g.pos.x, dz = wp.z - g.pos.z, d = Math.hypot(dx, dz);
+        if (d < (last ? 0.04 : 0.22)) return true;
+        // give up on a waypoint she cannot reach (something in the way) rather than push forever
+        stuck = d < lastD - 0.002 ? 0 : stuck + dt; lastD = d;
+        if (stuck > 1.2) return true;
+        const pace = last ? THREE.MathUtils.clamp(d / 0.6, 0.22, 1) : 1;
+        g.setMoveDir((dx / d) * pace, (dz / d) * pace);
+        return false;
+      }, s);
+      lastD = Infinity; stuck = 0;
+    }
+    g.setMoveDir(0, 0);
   }
-  g.setMoveDir(0, 0);
-  // settle: let her come to rest, then turn on the spot and close the last centimetres
+  // settle: let her come to rest, then turn on the spot and close the last centimetres.
+  // The slide is capped, so a spot she could not reach is never reached through furniture.
   await w.tasks.until(() => g.speed < 0.05, 0.8, s);
   const y0 = g.yaw, p0 = g.pos.clone();
+  const gap = Math.hypot(x - p0.x, z - p0.z), part = gap > SETTLE_MAX ? SETTLE_MAX / gap : 1;
+  const tx = p0.x + (x - p0.x) * part, tz = p0.z + (z - p0.z) * part;
   let dy = yaw - y0; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   const dur = 0.25 + Math.abs(dy) * 0.22;
   await w.tasks.during(dur, (k) => {
     const e = smooth(k);
     g.yaw = y0 + dy * e;
-    g.pos.x = lerp(p0.x, x, e); g.pos.z = lerp(p0.z, z, e);
+    g.pos.x = lerp(p0.x, tx, e); g.pos.z = lerp(p0.z, tz, e);
   }, s);
 }
 

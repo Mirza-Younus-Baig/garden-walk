@@ -11,20 +11,36 @@
  */
 import { MODES, modeFromUrl, showMenu, addMenuButton } from './menu/menu';
 
+/**
+ * A mode's code failed to load: most often a tab opened before a redeploy asking for a
+ * chunk that no longer exists, or a dropped connection. Say so, and offer a reload.
+ */
+function loadFailed(err: unknown) {
+  console.error(err);
+  document.getElementById('loading')?.remove();
+  const box = document.createElement('div');
+  box.className = 'load-failed';
+  box.setAttribute('role', 'alert');
+  box.innerHTML = '<p>This page could not finish loading.</p><button type="button">Reload</button>';
+  box.querySelector('button')!.addEventListener('click', () => location.reload());
+  document.body.append(box);
+}
+
 const mode = modeFromUrl(location.search);
-if (!mode) {
-  // the garden's loading screen and key hint live in index.html; the menu has no use for
-  // them (and the garden's CSS would show the loading screen despite its `hidden`)
+// The garden's loading screen and key hint live in index.html. Only the garden uses them
+// (and the garden's CSS would show the loading screen despite its `hidden`).
+if (mode !== 'garden') {
   document.getElementById('loading')?.remove();
   document.getElementById('hint')?.remove();
+}
+if (!mode) {
   showMenu(MODES);
 } else {
   addMenuButton();
   if (mode === 'garden') {
-    // the garden's own loading screen lives in index.html
     document.getElementById('loading')!.hidden = false;
-    import('./modes/garden/index');
+    import('./modes/garden/index').catch(loadFailed);
   } else {
-    import('./modes/birthday/index');
+    import('./modes/birthday/index').catch(loadFailed);
   }
 }

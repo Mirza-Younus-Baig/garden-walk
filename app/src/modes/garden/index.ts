@@ -12,9 +12,11 @@ import { FlowerField } from '../../flowers/field';
 import { flowerUniforms } from '../../flowers/shader';
 import { Girl } from '../../girl/girl';
 import { FollowCamera } from '../../camera/follow';
-import { bindInput, groundPoint } from '../../input';
+import { bindInput } from '../../input';
+import { groundPoint } from '../../world/pick';
 import { isTouch, layoutStage, bindTouch } from '../../mobile';
 import { CONFIG } from '../../config';
+import { flag, param } from '../../params';
 
 const overlay = document.getElementById('loading')!;
 const bar = document.getElementById('bar')!;
@@ -48,7 +50,7 @@ const basePixelRatio = Math.min(devicePixelRatio, isTouch ? 1.5 : 1.75);
 // Phones get a lower floor and start part-way down, climbing only if the frame allows.
 const PR_STEPS = (isTouch ? [0.5, 0.6, 0.72, 0.85, 1.0] : [0.60, 0.72, 0.85, 1.0]).map((f) => basePixelRatio * f);
 // `?pr=0.72` pins the ratio, so two measurements can be compared at the same resolution
-const lockPr = parseFloat(new URLSearchParams(location.search).get('pr') ?? '');
+const lockPr = parseFloat(param('pr') ?? '');
 if (!isNaN(lockPr)) PR_STEPS.length = 0, PR_STEPS.push(lockPr * basePixelRatio);
 let prIdx = isTouch ? Math.min(2, PR_STEPS.length - 1) : PR_STEPS.length - 1;
 // The stage is the window, except on a phone held upright, where it is the window turned
@@ -59,7 +61,7 @@ const applySize = () => {
   renderer.setSize(stage.w, stage.h);
 };
 applySize();
-renderer.shadowMap.enabled = !location.search.includes('noshadow'); renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.enabled = !flag('noshadow'); renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
@@ -92,8 +94,8 @@ let updateCompass: ((camera: THREE.Camera) => void) | null = null;
     ground.build(texLoader), makeSky(scene, renderer, manager), field.load(), girl.load(), birds.load(),
   ]);
   sky = builtSky;
-  updateClockUI = createTimeUI(sky.dayNight, location.search.includes('dev'), !location.search.includes('noclock'));
-  if (!location.search.includes('nocompass')) updateCompass = createCompass(sky.dayNight);
+  updateClockUI = createTimeUI(sky.dayNight, flag('dev'), !flag('noclock'));
+  if (!flag('nocompass')) updateCompass = createCompass(sky.dayNight);
   (window as any).__sky = sky;
   scene.add(groundMesh); scene.add(field.group); scene.add(girl.root); scene.add(birds.group);
   (window as any).__cfg = CONFIG;
@@ -116,14 +118,14 @@ if (isTouch) addEventListener('orientationchange', () => setTimeout(onResize, 25
 
 // `?stats` shows what the view-allocated field is actually drawing; off by default so
 // the garden stays uncluttered.
-const statsEl = location.search.includes('stats') ? (() => {
+const statsEl = flag('stats') ? (() => {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9;font:12px ui-monospace,monospace;' +
     'color:#fff;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:5px;pointer-events:none';
   document.body.appendChild(el); return el;
 })() : null;
 let lastStats = 0;
-const prof = location.search.includes('prof');
+const prof = flag('prof');
 
 let ema = 16.7, prCooldown = 0, warm = 0, upDwell = 0, demoted = 0, sinceUp = 1e3, demoteBlock = 20;
 

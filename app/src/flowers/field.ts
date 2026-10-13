@@ -5,6 +5,7 @@ import { heightAt } from '../world/terrain';
 import { ViewGrid, cellHash, clumpNoise, type ViewParams } from './grid';
 import { applyFlowerShader, makeFlowerDepthMaterial, makeBatchData, flowerUniforms, type BatchData, type FlowerShaderOpts } from './shader';
 import { buildGrassClump, makeBladeTexture } from './grass';
+import { flag } from '../params';
 
 /** One BatchedMesh (one material) holding several geometries: variants x detail levels. */
 class Batch {
@@ -26,7 +27,7 @@ class Batch {
     this.mesh = new THREE.BatchedMesh(slots, v, i, mat);
     this.data = makeBatchData(slots);
     for (const g of geos) this.geo.set(g.name, this.mesh.addGeometry(g.geo));
-    this.mesh.perObjectFrustumCulled = location.search.includes('nocull') ? false : (opts.cull ?? true);
+    this.mesh.perObjectFrustumCulled = flag('nocull') ? false : (opts.cull ?? true);
     this.mesh.sortObjects = false;
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = !!opts.shadow;
@@ -295,7 +296,6 @@ export class FlowerField {
       this.loader.loadAsync('/models/rose.glb'),
       this.loader.loadAsync('/models/tulip.glb'),
     ]);
-    const q = location.search;
 
     type MeshInfo = { name: string; geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial };
     const meshesOf = (root: THREE.Object3D) => {
@@ -349,13 +349,13 @@ export class FlowerField {
       mat.transparent = false; mat.depthWrite = true;
       mat.roughness = 0.75;
       mat.specularIntensity = 0.6;
-      mat.sheen = q.includes('plain') ? 0 : 0.5; mat.sheenRoughness = 0.6; mat.sheenColor.set(0xffffff);
+      mat.sheen = flag('plain') ? 0 : 0.5; mat.sheenRoughness = 0.6; mat.sheenColor.set(0xffffff);
       if (cutout) {
         mat.alphaTest = 0.4; mat.alphaToCoverage = true;
         if (mat.map) mat.map = solidify(mat.map);
       } else mat.alphaTest = 0;
       let gain = 1;
-      if (mask && mat.map && !q.includes('notint')) {
+      if (mask && mat.map && !flag('notint')) {
         // A mask hides the tint in the texture's own alpha, so it can only be built for a
         // material that does not already need alpha for its cutout.
         const m = makePetalMask(mat.map, mask);
@@ -366,9 +366,9 @@ export class FlowerField {
     };
 
     // `?plain` switches the finish off (no sheen, translucency or relief) to measure its cost
-    const plain = (o: FlowerShaderOpts): FlowerShaderOpts => q.includes('plain')
+    const plain = (o: FlowerShaderOpts): FlowerShaderOpts => flag('plain')
       ? { ...o, petalTrans: 0, leafTrans: 0, sheenPetal: 0, sheenLeaf: 0, detail: 0 }
-      : q.includes('nodetail') ? { ...o, detail: 0 } : o;
+      : flag('nodetail') ? { ...o, detail: 0 } : o;
     const mkBatch = (name: string, mat: THREE.Material, slots: number,
                      geos: { name: string; geo: THREE.BufferGeometry }[],
                      o?: { shadow?: boolean; cull?: boolean; tint?: boolean }) => {
@@ -632,7 +632,7 @@ export class FlowerField {
       divisors([topY(tuftSrc.geo), topY(moundSrc.geo)], 0)));
 
     for (const name of ['daisy', 'lily', 'rose', 'tulip', 'grass', 'scrub']) {
-      if (q.includes(`no${name}`)) this.layers = this.layers.filter((l) => !l.type.startsWith(name));
+      if (flag(`no${name}`)) this.layers = this.layers.filter((l) => !l.type.startsWith(name));
     }
     // The shadow pass sees the whole disc around her, including everything behind the
     // camera that the main pass never draws. Only the first caster batch of a layer runs

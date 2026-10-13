@@ -12,7 +12,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { Girl } from '../../girl/girl';
 import { bindInput } from '../../input';
-import { isTouch, layoutStage, bindTouch } from '../../mobile';
+import { isTouch, layoutStage, bindTouch, toStage } from '../../mobile';
 import { ROOM, LAYOUT, TUNING, GIRL_RADIUS } from './config';
 import { NavWorld } from './core/nav';
 import { Tasks } from './core/tasks';
@@ -33,13 +33,10 @@ import { buildCake } from './cake/cake';
 import { Flames } from './cake/flames';
 import { buildBouquet, buildCard } from './cake/tableware';
 import { Confetti, Sparkles } from './fx/fx';
+import { flag, nameParam } from '../../params';
 
-const NAME = (new URLSearchParams(location.search).get('name') ?? 'Mithra').slice(0, 24);
+const NAME = nameParam();
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-// the garden's own overlays are not used here
-document.getElementById('loading')?.remove();
-document.getElementById('hint')?.remove();
 
 const hud = new Hud(NAME, isTouch);
 
@@ -325,10 +322,6 @@ addEventListener('keydown', (e) => {
 // (on iOS a touch's pointerdown is not a user activation; its pointerup / touchend / click are)
 for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click'] as const) addEventListener(ev, () => audio.unlock(), { capture: true });
 
-// stage coordinates (the page may be turned a quarter on a phone held upright)
-const toStage = (x: number, y: number): [number, number] =>
-  document.documentElement.classList.contains('rotated') ? [y, innerWidth - x] : [x, y];
-
 // drag to look round, click or tap to go and use something
 {
   const el = renderer.domElement;
@@ -397,7 +390,7 @@ function makeLoop(o: {
   flames: Flames; decor: ReturnType<typeof buildDecor>; shell: ReturnType<typeof buildShell>; tvShow: TvShow;
   tv: { on: boolean }; record: THREE.Object3D; remote: THREE.Object3D; confetti: Confetti; sparkles: Sparkles;
 }) {
-  post = createPost(renderer, scene, camera, { mobile: isTouch, ao: !location.search.includes('noao') });
+  post = createPost(renderer, scene, camera, { mobile: isTouch, ao: !flag('noao') });
   post.setSize(stage.w, stage.h);
   sparklesScale = () => o.sparkles.setScale(renderer.getDrawingBufferSize(new THREE.Vector2()).y / 900);
   sparklesScale();
